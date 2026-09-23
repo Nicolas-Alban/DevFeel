@@ -1,3 +1,4 @@
+
 import { useState, useMemo, useRef, useEffect } from "react";
 import {
   Mail, UserPlus, UserCheck, Code2, Image as ImageIcon,
@@ -6,7 +7,7 @@ import {
   Send, Mic, Terminal, MoreVertical, Square, Search, PlayCircle,
   Copy, Check, X, SlidersHorizontal, Plus, Upload, ArrowLeft,
   Bold, Italic, Wifi, WifiOff, Smile, Paperclip, Info, Reply,
-  Camera, ExternalLink, ShieldCheck, Video, Globe
+  Camera, ExternalLink, ShieldCheck, Video, Globe, Pin
 } from "lucide-react";
 
 const ADMIN_HANDLES = ["@admin", "@nicolsalbn_devfeel"];
@@ -79,9 +80,16 @@ const INITIAL_POSTS = [
     comments: [] },
 ];
 
-import { loadShared, saveShared } from "./storage";
-const STORAGE_AVAILABLE = true;
-
+const STORAGE_AVAILABLE = typeof window !== "undefined" && !!window.storage;
+async function loadShared(key, fallback) {
+  if (!STORAGE_AVAILABLE) return fallback;
+  try { const res = await window.storage.get(key, true); return res ? JSON.parse(res.value) : fallback; }
+  catch (e) { return fallback; }
+}
+async function saveShared(key, value) {
+  if (!STORAGE_AVAILABLE) return;
+  try { await window.storage.set(key, JSON.stringify(value), true); } catch (e) {}
+}
 function convKey(a, b) { return [a, b].sort().join("::"); }
 function initials(name) { return (name || "?").split(" ").map(w => w[0]).join("").slice(0, 2); }
 function isValidEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
@@ -411,7 +419,7 @@ function ShareMenu({ post, contacts, onSendToChat }) {
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [sentTo, setSentTo] = useState(null);
   const btnRef = useRef(null);
-  const fakeUrl = "https://devfeel.app/post/" + post.id;
+  const fakeUrl = (typeof window !== "undefined" ? window.location.origin : "") + "/post/" + post.id;
 
   const openMenu = () => {
     const rect = btnRef.current?.getBoundingClientRect();
@@ -826,6 +834,15 @@ function OtherProfileScreen({ dev, following, toggleFollow, posts, onBack, onMes
   );
 }
 
+function SinglePostScreen({ post, onBack, t, ...rest }) {
+  return (
+    <div>
+      <button className="back-btn" onClick={onBack}><ArrowLeft size={16}/> {t("volver")}</button>
+      {post ? <PostCard post={post} t={t} {...rest} /> : <p className="no-comments">Esta publicación ya no existe o fue eliminada.</p>}
+    </div>
+  );
+}
+
 /* ---------- MODERACIÓN ---------- */
 function ModerationScreen({ users, requests, claims, onToggleVerified, onResolveRequest, onDismissClaim }) {
   return (
@@ -939,24 +956,67 @@ function SettingsScreen({ isDeveloper, hasPendingVerification, onRequestVerifica
           <p style={{ fontSize: 13, color: "var(--ink-muted)" }}>Corriendo fuera de Claude.ai: cada dispositivo queda aislado. Para probar con dos dispositivos a la vez, abre este artifact directamente en Claude.ai en ambos.</p>
         </div>
       )}
+      <div className="settings-card">
+        <h3 style={{ fontSize: 16, marginBottom: 10 }}>Información general</h3>
+        <div style={{ fontSize: 13, color: "var(--ink-muted)", lineHeight: 1.9 }}>
+          <div><strong style={{ color: "var(--ink)" }}>DevFeel</strong> · versión 0.34.1</div>
+          <div>Hecho con Claude (Anthropic)</div>
+          <div>Creado por Nicolás Albán</div>
+          <div>Proyecto 2026</div>
+        </div>
+      </div>
     </div>
   );
 }
 
 /* ---------- CHAT ---------- */
-function MessageBubble({ msg, myName, onReply }) {
+function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onTogglePin }) {
   const mine = msg.from === myName;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef(null);
+  const pressTimer = useRef(null);
+
+  const openMenuAt = (rect) => {
+    const popW = 160;
+    const left = Math.min(rect.left, window.innerWidth - popW - 12);
+    setPos({ top: rect.bottom + 4, left: Math.max(12, left) });
+    setMenuOpen(true);
+  };
+  const handleDotsClick = () => { const rect = btnRef.current?.getBoundingClientRect(); if (rect) openMenuAt(rect); };
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    pressTimer.current = setTimeout(() => { openMenuAt({ left: touch.clientX, bottom: touch.clientY, right: touch.clientX }); }, 500);
+  };
+  const cancelTouch = () => clearTimeout(pressTimer.current);
+
+  if (msg.deleted) {
+    return <div className={"msg-row" + (mine ? " mine" : "")}><div className={"bubble deleted" + (mine ? " mine" : "")}><em>Mensaje eliminado</em></div></div>;
+  }
+
   return (
     <div className={"msg-row" + (mine ? " mine" : "")}>
-      <div className={"bubble" + (mine ? " mine" : "")} onDoubleClick={() => onReply(msg)}>
+      {msg.pinned && <div className="pin-flag"><Pin size={10}/> Fijado</div>}
+      <div className={"bubble" + (mine ? " mine" : "")} onDoubleClick={() => onReply(msg)} onTouchStart={handleTouchStart} onTouchEnd={cancelTouch} onTouchMove={cancelTouch}>
         {msg.replyTo && <div className="reply-quote">{msg.replyTo}</div>}
-        {msg.type === "text" && <span>{msg.content}</span>}
+        {msg.type === "text" && <span>{msg.content}{msg.edited && <span className="edited-tag"> (editado)</span>}</span>}
         {msg.type === "sticker" && <span style={{ fontSize: 34 }}>{msg.content}</span>}
         {msg.type === "image" && <img src={msg.url} alt="" className="chat-img" />}
         {msg.type === "code" && <div className="chat-terminal"><div className="chat-terminal-bar"><span/><span/><span/></div><pre>{msg.content}</pre></div>}
         {msg.type === "audio" && <audio controls src={msg.url} className="audio-player" />}
         {msg.type === "link" && <a href={msg.url} target="_blank" rel="noreferrer" className="chat-link"><Link2 size={13} /> {msg.url}</a>}
       </div>
+      <button ref={btnRef} className="msg-dots-btn" onClick={handleDotsClick}><MoreVertical size={14}/></button>
+      {menuOpen && (
+        <>
+          <div className="overlay-catcher" onClick={() => setMenuOpen(false)} />
+          <div className="comments-list floating" style={{ top: pos.top, left: pos.left, width: 170 }}>
+            {mine && msg.type === "text" && <button className="pill-btn-outline" style={{ width: "100%", marginBottom: 6 }} onClick={() => { onEdit(index); setMenuOpen(false); }}>Editar</button>}
+            <button className="pill-btn-outline" style={{ width: "100%", marginBottom: mine ? 6 : 0 }} onClick={() => { onTogglePin(index); setMenuOpen(false); }}>{msg.pinned ? "Desfijar" : "Fijar"}</button>
+            {mine && <button className="pill-btn-outline" style={{ width: "100%" }} onClick={() => { onDelete(index); setMenuOpen(false); }}>Eliminar</button>}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -994,16 +1054,26 @@ function useAudioRecorder(onDone) {
   return { recording, error, start, stop };
 }
 
-function ChatScreen({ contacts, activeHandle, setActiveHandle, messages, sendMessage, myName, onViewProfile, canChatWith, chatStateFor, sendChatRequest, acceptChatRequest }) {
+function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMessage, editMessage, deleteMessage, togglePinMessage, myName, onViewProfile, canChatWith, chatStateFor, sendChatRequest, acceptChatRequest, unreadHandles }) {
   const [draft, setDraft] = useState("");
   const [requestDraft, setRequestDraft] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
+  const [editingIndex, setEditingIndex] = useState(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const fileInputRef = useRef(null);
   const active = contacts.find(c => c.handle === activeHandle) || contacts[0];
   const state = active ? chatStateFor(active) : "none";
   const canMessage = state === "direct" || state === "accepted";
+  const pinnedMsg = messages.find(m => m.pinned && !m.deleted);
+
+  const sortedContacts = useMemo(() => {
+    return [...contacts].sort((a, b) => {
+      const aUn = unreadHandles?.has(a.handle) ? 1 : 0;
+      const bUn = unreadHandles?.has(b.handle) ? 1 : 0;
+      return bUn - aUn;
+    });
+  }, [contacts, unreadHandles]);
 
   const doSend = (msgPart) => {
     const withReply = replyTo ? { ...msgPart, replyTo: (replyTo.from === myName ? "Tú" : replyTo.from) + ": " + (replyTo.content || replyTo.type) } : msgPart;
@@ -1011,22 +1081,31 @@ function ChatScreen({ contacts, activeHandle, setActiveHandle, messages, sendMes
     setReplyTo(null);
   };
   const recorder = useAudioRecorder((dataUrl) => doSend({ type: "audio", url: dataUrl }));
-  const sendText = () => { if (!draft.trim() || !canMessage) return; const isLink = /^https?:\/\//.test(draft.trim()); doSend(isLink ? { type: "link", url: draft.trim() } : { type: "text", content: draft.trim() }); setDraft(""); };
+  const startEdit = (idx) => { setEditingIndex(idx); setDraft(messages[idx]?.content || ""); };
+  const cancelEdit = () => { setEditingIndex(null); setDraft(""); };
+  const sendText = () => {
+    if (!draft.trim() || !canMessage) return;
+    if (editingIndex !== null) { editMessage(active.handle, editingIndex, draft.trim()); setEditingIndex(null); setDraft(""); return; }
+    const isLink = /^https?:\/\//.test(draft.trim());
+    doSend(isLink ? { type: "link", url: draft.trim() } : { type: "text", content: draft.trim() });
+    setDraft("");
+  };
   const sendCodePrompt = () => canMessage && doSend({ type: "code", content: "// prompt compartido\nExplica qué hace este hook:\nuseEffect(() => {...}, [dep])" });
   const handleImageUpload = (e) => { const file = e.target.files?.[0]; if (!file || !canMessage) return; const reader = new FileReader(); reader.onload = () => doSend({ type: "image", url: reader.result }); reader.readAsDataURL(file); };
   const submitRequest = () => { if (!requestDraft.trim()) return; sendChatRequest(active, requestDraft.trim()); setRequestDraft(""); };
 
-  const attachments = messages.filter(m => m.type === "image" || m.type === "link");
+  const attachments = messages.filter(m => (m.type === "image" || m.type === "link") && !m.deleted);
   const statusLabel = (c) => { const s = chatStateFor(c); return s === "direct" || s === "accepted" ? "podés escribirle" : s === "pending-sent" ? "solicitud enviada" : s === "pending-received" ? "quiere chatear con vos" : "seguíanse para chatear"; };
 
   return (
     <div className={"chat-shell" + (mobileShowChat ? " show-chat" : "")}>
       <div className="contacts-col">
         <h4>Mensajes</h4>
-        {contacts.map(c => (
-          <div key={c.handle} className={"contact-item" + (c.handle === activeHandle ? " active" : "")} onClick={() => { setActiveHandle(c.handle); setMobileShowChat(true); }}>
+        {sortedContacts.map(c => (
+          <div key={c.handle} className={"contact-item" + (c.handle === activeHandle ? " active" : "")} onClick={() => { onSelectContact(c.handle); setMobileShowChat(true); }}>
             <Avatar name={c.name} url={c.avatarUrl} />
             <div><div className="contact-name">{c.name}</div><div className="contact-sub">{statusLabel(c)}</div></div>
+            {unreadHandles?.has(c.handle) && <span className="badge-dot" style={{ position: "static", marginLeft: "auto" }}>●</span>}
             {chatStateFor(c) === "pending-received" && <span className="badge-dot" style={{ position: "static", marginLeft: "auto" }}>!</span>}
           </div>
         ))}
@@ -1040,6 +1119,7 @@ function ChatScreen({ contacts, activeHandle, setActiveHandle, messages, sendMes
             <button className="tool-btn" title="Archivos compartidos" onClick={() => setShowInfo(s => !s)}><Info size={15}/></button>
           </div>
         )}
+        {pinnedMsg && <div className="pinned-banner"><Pin size={12}/> {pinnedMsg.content || (pinnedMsg.type === "image" ? "Imagen fijada" : "Mensaje fijado")}</div>}
         {showInfo && (
           <div className="attachments-panel">
             <div className="notif-head"><span>Archivos compartidos</span><button onClick={() => setShowInfo(false)}><X size={14}/></button></div>
@@ -1057,11 +1137,12 @@ function ChatScreen({ contacts, activeHandle, setActiveHandle, messages, sendMes
 
         <div className="messages">
           {messages.length === 0 && state !== "none" && <p className="no-comments" style={{ textAlign: "center", marginTop: 20 }}>Todavía no hay mensajes. Decí hola 👋</p>}
-          {messages.map((m, i) => <MessageBubble key={i} msg={m} myName={myName} onReply={setReplyTo} />)}
+          {messages.map((m, i) => <MessageBubble key={i} msg={m} index={i} myName={myName} onReply={setReplyTo} onEdit={startEdit} onDelete={(idx) => deleteMessage(active.handle, idx)} onTogglePin={(idx) => togglePinMessage(active.handle, idx)} />)}
         </div>
 
         {state === "direct" || state === "accepted" ? (
           <>
+            {editingIndex !== null && <div className="reply-bar"><Reply size={13}/> Editando mensaje <button onClick={cancelEdit}><X size={12}/></button></div>}
             {replyTo && <div className="reply-bar"><Reply size={13}/> Respondiendo a {replyTo.from === myName ? "vos mismo" : replyTo.from} <button onClick={() => setReplyTo(null)}><X size={12}/></button></div>}
             {recorder.error && <div className="reply-bar" style={{ color: "#EB5757" }}>{recorder.error}</div>}
             <div className="composer-row">
@@ -1070,7 +1151,7 @@ function ChatScreen({ contacts, activeHandle, setActiveHandle, messages, sendMes
               <button className="tool-btn" title="Compartir prompt/código" onClick={sendCodePrompt}><Terminal size={15}/></button>
               <EmojiPicker onPick={(e) => doSend({ type: "sticker", content: e })} />
               <button className={"tool-btn" + (recorder.recording ? " recording" : "")} title="Grabar audio" onClick={recorder.recording ? recorder.stop : recorder.start}><Mic size={15}/></button>
-              <input placeholder={recorder.recording ? "Grabando audio… tocá el micrófono para enviar" : "Escribe un mensaje o pega un link…"} value={draft} disabled={recorder.recording} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && sendText()} />
+              <input placeholder={recorder.recording ? "Grabando audio… tocá el micrófono para enviar" : editingIndex !== null ? "Editá tu mensaje..." : "Escribe un mensaje o pega un link…"} value={draft} disabled={recorder.recording} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && sendText()} />
               <button className="send-btn" onClick={sendText}><Send size={15}/></button>
             </div>
           </>
@@ -1106,7 +1187,11 @@ function NotificationsDropdown({ notifications, onClose, onClickNotif }) {
 
 /* ---------- APP ---------- */
 export default function DevFeelApp() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try { const saved = localStorage.getItem("devfeel_session"); return saved ? JSON.parse(saved) : null; } catch (e) { return null; }
+  });
+  const [viewedPostId, setViewedPostId] = useState(null);
+  const pendingPostIdRef = useRef(null);
   const [tab, setTab] = useState("feed");
   const [acceptsMsgs, setAcceptsMsgs] = useState(true);
   const [bio, setBio] = useState("Construyendo cosas pequeñas y compartiéndolas acá.");
@@ -1127,13 +1212,40 @@ export default function DevFeelApp() {
   const [activeChatHandle, setActiveChatHandle] = useState("@marcosile");
   const [messagesMap, setMessagesMap] = useState({});
   const [chatStatuses, setChatStatuses] = useState({});
-  const seededPostsRef = useRef(false);
 
   const t = makeT(lang);
   const isAdmin = !!user && ADMIN_HANDLES.includes(user.handle);
   const myStoredEntry = realUsers.find(u => u.handle === user?.handle);
   const isDeveloper = isAdmin || !!myStoredEntry?.isDev;
   const hasPendingVerification = !!user && verificationRequests.some(r => r.handle === user.handle);
+
+  const unreadChatHandles = useMemo(() => new Set(
+    notifications.filter(n => !n.read && (n.kind === "message" || n.kind === "chatrequest") && n.meta?.handle).map(n => n.meta.handle)
+  ), [notifications]);
+
+  useEffect(() => {
+    try {
+      if (user) localStorage.setItem("devfeel_session", JSON.stringify(user));
+      else localStorage.removeItem("devfeel_session");
+    } catch (e) {}
+  }, [user]);
+
+  useEffect(() => {
+    document.body.style.margin = "0";
+    document.body.style.minHeight = "100vh";
+    document.body.style.background = theme === "light" ? "#F7F7F5" : "#0E0F0C";
+  }, [theme]);
+
+  useEffect(() => {
+    const m = window.location.pathname.match(/^\/post\/([^/]+)/);
+    if (m) pendingPostIdRef.current = m[1];
+  }, []);
+  useEffect(() => {
+    if (user && pendingPostIdRef.current && posts.length) {
+      setViewedPostId(pendingPostIdRef.current);
+      pendingPostIdRef.current = null;
+    }
+  }, [user, posts]);
 
   const following = useMemo(() => new Set(followsMap[user?.handle] || []), [followsMap, user]);
   const allDevs = useMemo(() => { const others = realUsers.filter(u => u.handle !== user?.handle); return [...STATIC_DEVS, ...others]; }, [realUsers, user]);
@@ -1168,13 +1280,8 @@ export default function DevFeelApp() {
     let live = true;
     const pull = async () => {
       const remotePosts = await loadShared("devfeel:posts", null);
-      if (live) {
-        if (remotePosts) {
-          setPosts(prev => JSON.stringify(prev) === JSON.stringify(remotePosts) ? prev : remotePosts);
-        } else if (!seededPostsRef.current) {
-          seededPostsRef.current = true;
-          await saveShared("devfeel:posts", INITIAL_POSTS);
-        }
+      if (live && remotePosts) {
+        setPosts(prev => JSON.stringify(prev) === JSON.stringify(remotePosts) ? prev : remotePosts);
       }
       const remoteUsers = await loadShared("devfeel:users", []);
       if (live) setRealUsers(prev => JSON.stringify(prev) === JSON.stringify(remoteUsers) ? prev : remoteUsers);
@@ -1196,8 +1303,14 @@ export default function DevFeelApp() {
     if (!user) return;
     let live = true;
     const pull = async () => {
-      const remoteMsgs = await loadShared("devfeel:messages:" + convKey(user.handle, activeChatHandle), []);
-      if (live) setMessagesMap(prev => ({ ...prev, [convKey(user.handle, activeChatHandle)]: remoteMsgs }));
+      const key = convKey(user.handle, activeChatHandle);
+      const remoteMsgs = await loadShared("devfeel:messages:" + key, []);
+      if (live) setMessagesMap(prev => {
+        const existing = prev[key] || [];
+        if (remoteMsgs.length < existing.length) return prev;
+        if (JSON.stringify(existing) === JSON.stringify(remoteMsgs)) return prev;
+        return { ...prev, [key]: remoteMsgs };
+      });
       const remoteNotifs = await loadShared("devfeel:notifications:" + user.handle, []);
       if (live) setNotifications(remoteNotifs.slice().reverse());
       const remoteAffinity = await loadShared("devfeel:affinity:" + user.handle, {});
@@ -1350,7 +1463,29 @@ export default function DevFeelApp() {
     const next = [...current, { ...msg, from: user.name, ts: Date.now() }];
     setMessagesMap(prev => ({ ...prev, [key]: next }));
     await saveShared("devfeel:messages:" + key, next);
-    pushNotification(otherHandle, "Nuevo mensaje de " + user.name, "message", { handle: otherHandle });
+    pushNotification(otherHandle, "Nuevo mensaje de " + user.name, "message", { handle: user.handle });
+  };
+
+  const editMessage = async (otherHandle, index, newText) => {
+    const key = convKey(user.handle, otherHandle);
+    const current = messagesMap[key] || [];
+    const next = current.map((m, i) => i === index ? { ...m, content: newText, edited: true } : m);
+    setMessagesMap(prev => ({ ...prev, [key]: next }));
+    await saveShared("devfeel:messages:" + key, next);
+  };
+  const deleteMessage = async (otherHandle, index) => {
+    const key = convKey(user.handle, otherHandle);
+    const current = messagesMap[key] || [];
+    const next = current.map((m, i) => i === index ? { ...m, deleted: true, content: "", url: "" } : m);
+    setMessagesMap(prev => ({ ...prev, [key]: next }));
+    await saveShared("devfeel:messages:" + key, next);
+  };
+  const togglePinMessage = async (otherHandle, index) => {
+    const key = convKey(user.handle, otherHandle);
+    const current = messagesMap[key] || [];
+    const next = current.map((m, i) => i === index ? { ...m, pinned: !m.pinned } : m);
+    setMessagesMap(prev => ({ ...prev, [key]: next }));
+    await saveShared("devfeel:messages:" + key, next);
   };
 
   const sendChatRequest = async (dev, text) => {
@@ -1360,7 +1495,7 @@ export default function DevFeelApp() {
     setChatStatuses(nextStatus);
     await saveShared("devfeel:chatstatus", nextStatus);
     await sendMessage(dev.handle, { type: "text", content: text });
-    pushNotification(dev.handle, user.name + " quiere chatear con vos", "chatrequest", { handle: dev.handle });
+    pushNotification(dev.handle, user.name + " quiere chatear con vos", "chatrequest", { handle: user.handle });
   };
 
   const acceptChatRequest = async (dev) => {
@@ -1370,7 +1505,7 @@ export default function DevFeelApp() {
     const nextStatus = { ...remoteStatus, [key]: { ...existing, status: "accepted" } };
     setChatStatuses(nextStatus);
     await saveShared("devfeel:chatstatus", nextStatus);
-    pushNotification(dev.handle, user.name + " aceptó tu solicitud de chat", "message", { handle: dev.handle });
+    pushNotification(dev.handle, user.name + " aceptó tu solicitud de chat", "message", { handle: user.handle });
   };
   const sendPostToChat = async (otherHandle, url, preview) => {
     await sendMessage(otherHandle, { type: "link", url, content: preview });
@@ -1385,13 +1520,24 @@ export default function DevFeelApp() {
     if (dev) setViewedProfile(dev);
   };
   const openChatWith = (dev) => { setActiveChatHandle(dev.handle); setTab("chat"); setViewedProfile(null); };
+  const markChatRead = async (handle) => {
+    if (!user) return;
+    const list = await loadShared("devfeel:notifications:" + user.handle, []);
+    const updated = list.map(n => (n.meta?.handle === handle && (n.kind === "message" || n.kind === "chatrequest")) ? { ...n, read: true } : n);
+    await saveShared("devfeel:notifications:" + user.handle, updated);
+    setNotifications(updated.slice().reverse());
+  };
   const handleNotifClick = async (n) => {
+    if (n.kind === "message" || n.kind === "chatrequest") {
+      if (n.meta?.handle) { setActiveChatHandle(n.meta.handle); setTab("chat"); setViewedProfile(null); await markChatRead(n.meta.handle); }
+      setShowNotifs(false);
+      return;
+    }
     const list = await loadShared("devfeel:notifications:" + user.handle, []);
     const updated = list.map(x => x.id === n.id ? { ...x, read: true } : x);
     await saveShared("devfeel:notifications:" + user.handle, updated);
     setNotifications(updated.slice().reverse());
     if (n.kind === "follow" && n.meta?.handle) openProfile(n.meta.handle);
-    if (n.kind === "message" && n.meta?.handle) { setActiveChatHandle(n.meta.handle); setTab("chat"); setViewedProfile(null); }
     setShowNotifs(false);
   };
 
@@ -1402,11 +1548,35 @@ export default function DevFeelApp() {
   return (
     <div className={"app-root" + (theme === "light" ? " light" : "")}>
       <style>{`
+        html, body{ scrollbar-width: thin; scrollbar-color: #55534C transparent; }
+        html::-webkit-scrollbar, body::-webkit-scrollbar{ width:8px; }
+        html::-webkit-scrollbar-track, body::-webkit-scrollbar-track{ background:transparent; }
+        html::-webkit-scrollbar-thumb, body::-webkit-scrollbar-thumb{ background:#55534C; border-radius:9999px; }
+        .app-root *{ scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+        .app-root *::-webkit-scrollbar{ width:8px; height:8px; }
+        .app-root *::-webkit-scrollbar-track{ background:transparent; }
+        .app-root *::-webkit-scrollbar-thumb{ background:var(--border); border-radius:9999px; }
+        .app-root *::-webkit-scrollbar-thumb:hover{ background:var(--ink-faint); }
         .app-root{ --canvas:#0E0F0C; --surface:#171813; --surface-alt:#1F2119; --border:#2A2C22; --accent:#E8B84B; --accent-ink:#3A2C0A; --ink:#F5F4EE; --ink-muted:#9A9C8E; --ink-faint:#6B6D62; --shadow:0 6px 20px rgba(0,0,0,0.35);
           background:var(--canvas); color:var(--ink); font-family:'Inter',sans-serif; max-width:680px; margin:0 auto; border-radius:16px; overflow:hidden; position:relative; }
         .app-root.light{ --canvas:#F7F7F5; --surface:#FFFFFF; --surface-alt:#F0F0EC; --border:#DEDDD6; --accent:#C6841A; --accent-ink:#FFFFFF; --ink:#141414; --ink-muted:#55534C; --ink-faint:#83817A; --shadow:0 2px 14px rgba(20,20,20,0.07); }
         .app-root, .app-root *{ transition:background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .12s ease; }
         .app-root input::placeholder, .app-root textarea::placeholder{ color:var(--ink-faint); opacity:1; }
+        .app-root input:-webkit-autofill, .app-root input:-webkit-autofill:hover, .app-root input:-webkit-autofill:focus, .app-root textarea:-webkit-autofill{
+          -webkit-text-fill-color:var(--ink) !important;
+          -webkit-box-shadow:0 0 0px 1000px var(--surface-alt) inset !important;
+          box-shadow:0 0 0px 1000px var(--surface-alt) inset !important;
+          transition:background-color 9999s ease-in-out 0s;
+        }
+        .msg-row{ display:flex; align-items:flex-end; gap:4px; flex-wrap:wrap; }
+        .msg-row.mine{ justify-content:flex-end; }
+        .msg-dots-btn{ background:none; border:none; color:var(--ink-faint); cursor:pointer; padding:4px; flex-shrink:0; }
+        .msg-dots-btn:hover{ color:var(--accent); }
+        .pin-flag{ font-size:10px; color:var(--ink-faint); display:flex; align-items:center; gap:4px; width:100%; }
+        .msg-row.mine .pin-flag{ justify-content:flex-end; }
+        .pinned-banner{ display:flex; align-items:center; gap:6px; background:var(--surface-alt); border-bottom:1px solid var(--border); padding:8px 16px; font-size:12px; color:var(--ink-muted); }
+        .edited-tag{ font-size:10px; opacity:0.7; }
+        .bubble.deleted{ font-style:italic; color:var(--ink-faint); background:var(--surface-alt); }
         .header-mark{ display:flex; align-items:center; gap:7px; font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:15px; color:var(--ink); flex-shrink:0; }
         .header-mark-icon{ display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:8px; background:var(--accent); color:var(--accent-ink); flex-shrink:0; }
         @media (max-width:420px){ .header-mark-text{ display:none; } }
@@ -1476,7 +1646,7 @@ export default function DevFeelApp() {
         .chip-row{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
         .chip{ background:var(--surface-alt); border:1px solid var(--border); color:var(--ink-muted); border-radius:9999px; padding:6px 13px; font-size:12px; cursor:pointer; }
         .chip.active{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
-        .screen{ padding:18px; max-height:640px; overflow-y:auto; }
+        .screen{ padding:18px; }
         .new-post-fab{ display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border); color:var(--ink-muted); border-radius:9999px; padding:12px 20px; font-size:14px; font-weight:600; cursor:pointer; margin-bottom:22px; width:100%; justify-content:center; }
         .new-post-fab:hover{ border-color:var(--accent); color:var(--accent); }
         .composer{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px; margin-bottom:22px; }
@@ -1625,19 +1795,21 @@ export default function DevFeelApp() {
             <button className={"tab-btn" + (tab === "feed" && !viewedProfile ? " active" : "")} onClick={() => { setTab("feed"); setViewedProfile(null); }}><Home size={18}/><span className="tab-label">{t("feed")}</span></button>
             <button className={"tab-btn" + (tab === "devfeed" && !viewedProfile ? " active" : "")} onClick={() => { setTab("devfeed"); setViewedProfile(null); }}><Video size={18}/><span className="tab-label">DevFeed</span></button>
             <button className={"tab-btn" + (tab === "perfil" && !viewedProfile ? " active" : "")} onClick={() => { setTab("perfil"); setViewedProfile(null); }}><UserIcon size={18}/><span className="tab-label">{t("perfil")}</span></button>
-            <button className={"tab-btn" + (tab === "chat" && !viewedProfile ? " active" : "")} onClick={() => { setTab("chat"); setViewedProfile(null); }}><MessageCircle size={18}/><span className="tab-label">{t("chat")}</span></button>
+            <button className={"tab-btn" + (tab === "chat" && !viewedProfile ? " active" : "")} onClick={() => { setTab("chat"); setViewedProfile(null); }}><MessageCircle size={18}/><span className="tab-label">{t("chat")}</span>{unreadChatHandles.size > 0 && <span className="badge-dot" style={{ position: "static", marginLeft: 3 }}>{unreadChatHandles.size}</span>}</button>
             <button className={"tab-btn" + (tab === "ajustes" && !viewedProfile ? " active" : "")} onClick={() => { setTab("ajustes"); setViewedProfile(null); }}><SlidersHorizontal size={18}/><span className="tab-label">{t("ajustes")}</span></button>
             {isAdmin && <button className={"tab-btn" + (tab === "moderacion" && !viewedProfile ? " active" : "")} onClick={() => { setTab("moderacion"); setViewedProfile(null); }}><ShieldCheck size={18}/><span className="tab-label">{t("moderacion")}</span></button>}
           </div>
           <div className="screen">
-            {viewedProfile ? (
+            {viewedPostId ? (
+              <SinglePostScreen post={posts.find(p => String(p.id) === String(viewedPostId))} onBack={() => { setViewedPostId(null); window.history.pushState({}, "", "/"); }} t={t} following={following.has(posts.find(p => String(p.id) === String(viewedPostId))?.handle)} onToggleFollow={toggleFollow} onLike={likePost} onReport={reportPost} onAddComment={addComment} onLikeComment={likeComment} onViewProfile={openProfile} myHandle={user.handle} contacts={contactsList} onSendToChat={sendPostToChat} resolveAuthor={resolveDev} lang={lang} />
+            ) : viewedProfile ? (
               <OtherProfileScreen dev={viewedProfile} following={following} toggleFollow={toggleFollow} posts={posts} onBack={() => setViewedProfile(null)} onMessage={openChatWith} followsMap={followsMap} canChatWith={canChatWith} t={t} lang={lang} />
             ) : (
               <>
                 {tab === "feed" && <FeedScreen posts={posts} likePost={likePost} reportPost={reportPost} addComment={addComment} likeComment={likeComment} publishPost={publishPost} following={following} toggleFollow={toggleFollow} isDeveloper={isDeveloper} searchQuery={searchQuery} onViewProfile={openProfile} myHandle={user.handle} contacts={contactsList} onSendToChat={sendPostToChat} resolveAuthor={resolveDev} affinity={affinity} lang={lang} t={t} />}
                 {tab === "devfeed" && <DevFeedScreen posts={posts} likePost={likePost} reportPost={reportPost} addComment={addComment} likeComment={likeComment} onViewProfile={openProfile} myHandle={user.handle} resolveAuthor={resolveDev} affinity={affinity} contacts={contactsList} onSendToChat={sendPostToChat} t={t} lang={lang} />}
                 {tab === "perfil" && <ProfileScreen user={user} following={following} toggleFollow={toggleFollow} myPostsCount={myPostsCount} bio={bio} searchQuery={searchQuery} isDeveloper={isDeveloper} onViewProfile={openProfile} allDevs={allDevs} followsMap={followsMap} avatarUrl={avatarUrl} t={t} />}
-                {tab === "chat" && <ChatScreen contacts={contactsList} activeHandle={activeChatHandle} setActiveHandle={setActiveChatHandle} messages={messagesMap[activeConvKey] || []} sendMessage={sendMessage} myName={user.name} onViewProfile={openProfile} canChatWith={canChatWith} chatStateFor={chatStateFor} sendChatRequest={sendChatRequest} acceptChatRequest={acceptChatRequest} />}
+                {tab === "chat" && <ChatScreen contacts={contactsList} activeHandle={activeChatHandle} onSelectContact={(h) => { setActiveChatHandle(h); markChatRead(h); }} messages={messagesMap[activeConvKey] || []} sendMessage={sendMessage} editMessage={editMessage} deleteMessage={deleteMessage} togglePinMessage={togglePinMessage} myName={user.name} onViewProfile={openProfile} canChatWith={canChatWith} chatStateFor={chatStateFor} sendChatRequest={sendChatRequest} acceptChatRequest={acceptChatRequest} unreadHandles={unreadChatHandles} />}
                 {tab === "ajustes" && <SettingsScreen isDeveloper={isDeveloper} hasPendingVerification={hasPendingVerification} onRequestVerification={sendVerificationRequest} acceptsMsgs={acceptsMsgs} setAcceptsMsgs={setAcceptsMsgs} theme={theme} setTheme={setTheme} lang={lang} setLang={setLang} nickname={user.name} handle={user.handle} onSaveNickname={(n) => setUser(prev => ({ ...prev, name: (n || "").trim() || prev.name }))} bio={bio} setBio={setBio} avatarUrl={avatarUrl} setAvatarUrl={setAvatarUrl} links={links} setLinks={setLinks} t={t} />}
                 {tab === "moderacion" && isAdmin && <ModerationScreen users={realUsers} requests={verificationRequests} claims={claims} onToggleVerified={toggleUserVerified} onResolveRequest={resolveVerification} onDismissClaim={dismissClaim} />}
               </>
