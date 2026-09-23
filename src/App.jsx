@@ -80,14 +80,21 @@ const INITIAL_POSTS = [
     comments: [] },
 ];
 
-const STORAGE_AVAILABLE = typeof window !== "undefined" && !!window.storage;
+const STORAGE_AVAILABLE = typeof window !== "undefined" && !!(window.storage || window.__supabaseStorage);
 async function loadShared(key, fallback) {
-  if (!STORAGE_AVAILABLE) return fallback;
+  if (typeof window !== "undefined" && window.__supabaseStorage) {
+    try { return await window.__supabaseStorage.loadShared(key, fallback); } catch (e) { return fallback; }
+  }
+  if (typeof window === "undefined" || !window.storage) return fallback;
   try { const res = await window.storage.get(key, true); return res ? JSON.parse(res.value) : fallback; }
   catch (e) { return fallback; }
 }
 async function saveShared(key, value) {
-  if (!STORAGE_AVAILABLE) return;
+  if (typeof window !== "undefined" && window.__supabaseStorage) {
+    try { await window.__supabaseStorage.saveShared(key, value); } catch (e) {}
+    return;
+  }
+  if (typeof window === "undefined" || !window.storage) return;
   try { await window.storage.set(key, JSON.stringify(value), true); } catch (e) {}
 }
 function convKey(a, b) { return [a, b].sort().join("::"); }
@@ -185,7 +192,7 @@ function EmojiPicker({ onPick }) {
 }
 
 /* ---------- SEARCH ---------- */
-function SearchBar({ query, setQuery, allDevs, posts, onSelectUser, onSelectHashtag, placeholder, t }) {
+function SearchBar({ query, setQuery, allDevs, posts, onSelectUser, onSelectHashtag, onSubmit, placeholder, t }) {
   const [focused, setFocused] = useState(false);
   const q = query.trim().toLowerCase().replace(/^#/, "");
   const userMatches = q ? allDevs.filter(d => d.name.toLowerCase().includes(q) || d.handle.toLowerCase().includes(q)).slice(0, 5) : [];
@@ -199,7 +206,7 @@ function SearchBar({ query, setQuery, allDevs, posts, onSelectUser, onSelectHash
   const noResults = showDropdown && userMatches.length === 0 && hashtagMatches.length === 0;
   return (
     <div className="search-box-wrap">
-      <div className="search-box"><Search size={14}/><input placeholder={placeholder} value={query} onChange={e => setQuery(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 150)} /></div>
+      <div className="search-box"><Search size={14}/><input placeholder={placeholder} value={query} onChange={e => setQuery(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 150)} onKeyDown={e => { if (e.key === "Enter") { onSubmit(query); e.target.blur(); } }} /></div>
       {showDropdown && (
         <div className="search-dropdown">
           {userMatches.length > 0 && <div className="search-group-label">Usuarios</div>}
@@ -668,7 +675,7 @@ function FeedScreen({ posts, likePost, reportPost, addComment, likeComment, publ
               <span className="hint-inline">o pega una URL (mp4, YouTube...):</span>
               <input type="text" placeholder="https://..." value={videoUrl.startsWith("data:") ? "" : videoUrl} onChange={e => setVideoUrl(e.target.value)} className="url-input" />
               {videoUrl && <video src={videoUrl} controls className="upload-preview" />}
-              <p className="hint-text" style={{ width: "100%" }}>Los archivos de video grandes pueden no sincronizar entre dispositivos (límite ~5MB). Mejor pegá un link. Aparece en la pestaña DevFeed.</p>
+              <p className="hint-text" style={{ width: "100%" }}>Los archivos de video grandes pueden no sincronizar entre dispositivos. Mejor pegá un link. Aparece en la pestaña DevFeed.</p>
             </div>
           )}
           {hasType("link") && <div className="upload-row"><input type="text" placeholder="https://tu-link.com (obligatorio)" value={linkUrl} onChange={e => setLinkUrl(e.target.value)} className="url-input" style={{ flex: 1 }} /></div>}
@@ -843,6 +850,32 @@ function SinglePostScreen({ post, onBack, t, ...rest }) {
   );
 }
 
+function SearchResultsScreen({ query, allDevs, posts, followsMap, onClose, onViewProfile, following, toggleFollow, likePost, reportPost, addComment, likeComment, myHandle, contacts, onSendToChat, resolveAuthor, lang, t }) {
+  const q = query.trim().toLowerCase().replace(/^#/, "");
+  const userMatches = allDevs.filter(d => d.name.toLowerCase().includes(q) || d.handle.toLowerCase().includes(q));
+  const postMatches = posts.filter(p => p.author.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q) || p.content.toLowerCase().includes(q) || (p.title || "").toLowerCase().includes(q) || p.tags.some(tg => tg.toLowerCase().includes(q)));
+  const nothing = userMatches.length === 0 && postMatches.length === 0;
+  return (
+    <div>
+      <button className="back-btn" onClick={onClose}><ArrowLeft size={16}/> {t("volver")}</button>
+      <h3 style={{ fontSize: 16, margin: "0 0 16px" }}>Resultados para "{query}"</h3>
+      {nothing && <p className="no-comments">{t("noHayResultados")}</p>}
+      {userMatches.length > 0 && (
+        <>
+          <h4 style={{ fontSize: 12, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 4px" }}>Usuarios</h4>
+          {userMatches.map(dev => <DevRow key={dev.handle} dev={dev} following={following.has(dev.handle)} onToggle={toggleFollow} onViewProfile={onViewProfile} followsMap={followsMap} t={t} />)}
+        </>
+      )}
+      {postMatches.length > 0 && (
+        <>
+          <h4 style={{ fontSize: 12, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.05em", margin: "20px 0 12px" }}>Publicaciones</h4>
+          {postMatches.map(p => <PostCard key={p.id} post={p} following={following.has(p.handle)} onToggleFollow={toggleFollow} onLike={likePost} onReport={reportPost} onAddComment={addComment} onLikeComment={likeComment} onViewProfile={onViewProfile} myHandle={myHandle} contacts={contacts} onSendToChat={onSendToChat} resolveAuthor={resolveAuthor} lang={lang} t={t} />)}
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ---------- MODERACIÓN ---------- */
 function ModerationScreen({ users, requests, claims, onToggleVerified, onResolveRequest, onDismissClaim }) {
   return (
@@ -953,7 +986,7 @@ function SettingsScreen({ isDeveloper, hasPendingVerification, onRequestVerifica
       {!STORAGE_AVAILABLE && (
         <div className="settings-card">
           <h3 style={{ fontSize: 16, marginBottom: 10 }}><WifiOff size={15} style={{ verticalAlign: "-3px", marginRight: 6 }}/>Modo local</h3>
-          <p style={{ fontSize: 13, color: "var(--ink-muted)" }}>Corriendo fuera de Claude.ai: cada dispositivo queda aislado. Para probar con dos dispositivos a la vez, abre este artifact directamente en Claude.ai en ambos.</p>
+          <p style={{ fontSize: 13, color: "var(--ink-muted)" }}>No hay conexión de almacenamiento activa: revisá que src/storage.js esté enganchado en main.jsx.</p>
         </div>
       )}
       <div className="settings-card">
@@ -1062,10 +1095,15 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
   const [editingIndex, setEditingIndex] = useState(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const fileInputRef = useRef(null);
+  const messagesEndRef = useRef(null);
   const active = contacts.find(c => c.handle === activeHandle) || contacts[0];
   const state = active ? chatStateFor(active) : "none";
   const canMessage = state === "direct" || state === "accepted";
   const pinnedMsg = messages.find(m => m.pinned && !m.deleted);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, activeHandle]);
 
   const sortedContacts = useMemo(() => {
     return [...contacts].sort((a, b) => {
@@ -1138,6 +1176,7 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
         <div className="messages">
           {messages.length === 0 && state !== "none" && <p className="no-comments" style={{ textAlign: "center", marginTop: 20 }}>Todavía no hay mensajes. Decí hola 👋</p>}
           {messages.map((m, i) => <MessageBubble key={i} msg={m} index={i} myName={myName} onReply={setReplyTo} onEdit={startEdit} onDelete={(idx) => deleteMessage(active.handle, idx)} onTogglePin={(idx) => togglePinMessage(active.handle, idx)} />)}
+          <div ref={messagesEndRef} />
         </div>
 
         {state === "direct" || state === "accepted" ? (
@@ -1193,6 +1232,7 @@ export default function DevFeelApp() {
   const [viewedPostId, setViewedPostId] = useState(null);
   const pendingPostIdRef = useRef(null);
   const [tab, setTab] = useState("feed");
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const [acceptsMsgs, setAcceptsMsgs] = useState(true);
   const [bio, setBio] = useState("Construyendo cosas pequeñas y compartiéndolas acá.");
   const [avatarUrl, setAvatarUrl] = useState("");
@@ -1209,7 +1249,9 @@ export default function DevFeelApp() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifs, setShowNotifs] = useState(false);
   const [viewedProfile, setViewedProfile] = useState(null);
-  const [activeChatHandle, setActiveChatHandle] = useState("@marcosile");
+  const [activeChatHandle, setActiveChatHandle] = useState(() => {
+    try { return localStorage.getItem("devfeel_active_chat") || "@marcosile"; } catch (e) { return "@marcosile"; }
+  });
   const [messagesMap, setMessagesMap] = useState({});
   const [chatStatuses, setChatStatuses] = useState({});
 
@@ -1229,6 +1271,10 @@ export default function DevFeelApp() {
       else localStorage.removeItem("devfeel_session");
     } catch (e) {}
   }, [user]);
+
+  useEffect(() => {
+    try { localStorage.setItem("devfeel_active_chat", activeChatHandle); } catch (e) {}
+  }, [activeChatHandle]);
 
   useEffect(() => {
     document.body.style.margin = "0";
@@ -1568,15 +1614,7 @@ export default function DevFeelApp() {
           box-shadow:0 0 0px 1000px var(--surface-alt) inset !important;
           transition:background-color 9999s ease-in-out 0s;
         }
-        .msg-row{ display:flex; align-items:flex-end; gap:4px; flex-wrap:wrap; }
-        .msg-row.mine{ justify-content:flex-end; }
-        .msg-dots-btn{ background:none; border:none; color:var(--ink-faint); cursor:pointer; padding:4px; flex-shrink:0; }
-        .msg-dots-btn:hover{ color:var(--accent); }
-        .pin-flag{ font-size:10px; color:var(--ink-faint); display:flex; align-items:center; gap:4px; width:100%; }
-        .msg-row.mine .pin-flag{ justify-content:flex-end; }
-        .pinned-banner{ display:flex; align-items:center; gap:6px; background:var(--surface-alt); border-bottom:1px solid var(--border); padding:8px 16px; font-size:12px; color:var(--ink-muted); }
-        .edited-tag{ font-size:10px; opacity:0.7; }
-        .bubble.deleted{ font-style:italic; color:var(--ink-faint); background:var(--surface-alt); }
+        .app-header{ position:sticky; top:0; z-index:22; background:var(--canvas); }
         .header-mark{ display:flex; align-items:center; gap:7px; font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:15px; color:var(--ink); flex-shrink:0; }
         .header-mark-icon{ display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:8px; background:var(--accent); color:var(--accent-ink); flex-shrink:0; }
         @media (max-width:420px){ .header-mark-text{ display:none; } }
@@ -1730,9 +1768,17 @@ export default function DevFeelApp() {
         .attachments-panel{ border-bottom:1px solid var(--border); padding:12px 16px; max-height:160px; overflow-y:auto; }
         .attach-thumb{ width:56px; height:56px; border-radius:8px; object-fit:cover; margin:0 6px 6px 0; display:inline-block; }
         .messages{ flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
-        .msg-row{ display:flex; } .msg-row.mine{ justify-content:flex-end; }
+        .msg-row{ display:flex; align-items:flex-end; gap:4px; flex-wrap:wrap; }
+        .msg-row.mine{ justify-content:flex-end; }
+        .msg-dots-btn{ background:none; border:none; color:var(--ink-faint); cursor:pointer; padding:4px; flex-shrink:0; }
+        .msg-dots-btn:hover{ color:var(--accent); }
+        .pin-flag{ font-size:10px; color:var(--ink-faint); display:flex; align-items:center; gap:4px; width:100%; }
+        .msg-row.mine .pin-flag{ justify-content:flex-end; }
+        .pinned-banner{ display:flex; align-items:center; gap:6px; background:var(--surface-alt); border-bottom:1px solid var(--border); padding:8px 16px; font-size:12px; color:var(--ink-muted); }
+        .edited-tag{ font-size:10px; opacity:0.7; }
         .bubble{ background:var(--surface); border:1px solid var(--border); border-radius:14px 14px 14px 4px; padding:9px 13px; max-width:75%; font-size:14px; cursor:pointer; }
         .bubble.mine{ background:var(--accent); color:var(--accent-ink); border-radius:14px 14px 4px 14px; border:none; font-weight:500; }
+        .bubble.deleted{ font-style:italic; color:var(--ink-faint); background:var(--surface-alt); }
         .reply-quote{ font-size:11px; opacity:0.75; border-left:2px solid currentColor; padding-left:6px; margin-bottom:4px; }
         .reply-bar{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-muted); padding:6px 16px; border-top:1px solid var(--border); }
         .reply-bar button{ margin-left:auto; background:none; border:none; color:var(--ink-faint); cursor:pointer; }
@@ -1778,11 +1824,13 @@ export default function DevFeelApp() {
 
       {!user ? <LoginScreen onLogin={setUser} existingHandles={existingHandles} onClaimRequest={submitOwnershipClaim} onRegisterCredentials={registerCredentials} onLoginWithPassword={verifyCredentials} t={t} /> : (
         <>
+          <div className="app-header">
           <div className="top-bar">
             <HeaderMark />
             <SearchBar query={searchQuery} setQuery={setSearchQuery} allDevs={allDevs} posts={posts}
-              onSelectUser={(h) => { openProfile(h); setSearchQuery(""); }}
-              onSelectHashtag={(tag) => { setSearchQuery("#" + tag); setTab("feed"); setViewedProfile(null); }}
+              onSelectUser={(h) => { openProfile(h); setSearchQuery(""); setShowSearchResults(false); }}
+              onSelectHashtag={(tag) => { setSearchQuery("#" + tag); setShowSearchResults(true); setViewedProfile(null); setViewedPostId(null); }}
+              onSubmit={(q) => { if (q.trim()) { setSearchQuery(q); setShowSearchResults(true); setViewedProfile(null); setViewedPostId(null); } }}
               placeholder={t("buscarPlaceholder")} t={t} />
             <div className="right">
               <span className="conn-pill" title={STORAGE_AVAILABLE ? "Sincronizado con otros dispositivos" : "Modo local, sin sincronizar"}>{STORAGE_AVAILABLE ? <Wifi size={12}/> : <WifiOff size={12}/>}</span>
@@ -1792,15 +1840,18 @@ export default function DevFeelApp() {
             </div>
           </div>
           <div className="tab-bar">
-            <button className={"tab-btn" + (tab === "feed" && !viewedProfile ? " active" : "")} onClick={() => { setTab("feed"); setViewedProfile(null); }}><Home size={18}/><span className="tab-label">{t("feed")}</span></button>
-            <button className={"tab-btn" + (tab === "devfeed" && !viewedProfile ? " active" : "")} onClick={() => { setTab("devfeed"); setViewedProfile(null); }}><Video size={18}/><span className="tab-label">DevFeed</span></button>
-            <button className={"tab-btn" + (tab === "perfil" && !viewedProfile ? " active" : "")} onClick={() => { setTab("perfil"); setViewedProfile(null); }}><UserIcon size={18}/><span className="tab-label">{t("perfil")}</span></button>
-            <button className={"tab-btn" + (tab === "chat" && !viewedProfile ? " active" : "")} onClick={() => { setTab("chat"); setViewedProfile(null); }}><MessageCircle size={18}/><span className="tab-label">{t("chat")}</span>{unreadChatHandles.size > 0 && <span className="badge-dot" style={{ position: "static", marginLeft: 3 }}>{unreadChatHandles.size}</span>}</button>
-            <button className={"tab-btn" + (tab === "ajustes" && !viewedProfile ? " active" : "")} onClick={() => { setTab("ajustes"); setViewedProfile(null); }}><SlidersHorizontal size={18}/><span className="tab-label">{t("ajustes")}</span></button>
-            {isAdmin && <button className={"tab-btn" + (tab === "moderacion" && !viewedProfile ? " active" : "")} onClick={() => { setTab("moderacion"); setViewedProfile(null); }}><ShieldCheck size={18}/><span className="tab-label">{t("moderacion")}</span></button>}
+            <button className={"tab-btn" + (tab === "feed" && !viewedProfile ? " active" : "")} onClick={() => { setTab("feed"); setViewedProfile(null); setShowSearchResults(false); }}><Home size={18}/><span className="tab-label">{t("feed")}</span></button>
+            <button className={"tab-btn" + (tab === "devfeed" && !viewedProfile ? " active" : "")} onClick={() => { setTab("devfeed"); setViewedProfile(null); setShowSearchResults(false); }}><Video size={18}/><span className="tab-label">DevFeed</span></button>
+            <button className={"tab-btn" + (tab === "perfil" && !viewedProfile ? " active" : "")} onClick={() => { setTab("perfil"); setViewedProfile(null); setShowSearchResults(false); }}><UserIcon size={18}/><span className="tab-label">{t("perfil")}</span></button>
+            <button className={"tab-btn" + (tab === "chat" && !viewedProfile ? " active" : "")} onClick={() => { setTab("chat"); setViewedProfile(null); setShowSearchResults(false); }}><MessageCircle size={18}/><span className="tab-label">{t("chat")}</span>{unreadChatHandles.size > 0 && <span className="badge-dot" style={{ position: "static", marginLeft: 3 }}>{unreadChatHandles.size}</span>}</button>
+            <button className={"tab-btn" + (tab === "ajustes" && !viewedProfile ? " active" : "")} onClick={() => { setTab("ajustes"); setViewedProfile(null); setShowSearchResults(false); }}><SlidersHorizontal size={18}/><span className="tab-label">{t("ajustes")}</span></button>
+            {isAdmin && <button className={"tab-btn" + (tab === "moderacion" && !viewedProfile ? " active" : "")} onClick={() => { setTab("moderacion"); setViewedProfile(null); setShowSearchResults(false); }}><ShieldCheck size={18}/><span className="tab-label">{t("moderacion")}</span></button>}
+          </div>
           </div>
           <div className="screen">
-            {viewedPostId ? (
+            {showSearchResults ? (
+              <SearchResultsScreen query={searchQuery} allDevs={allDevs} posts={posts} followsMap={followsMap} onClose={() => { setShowSearchResults(false); setSearchQuery(""); }} onViewProfile={openProfile} following={following} toggleFollow={toggleFollow} likePost={likePost} reportPost={reportPost} addComment={addComment} likeComment={likeComment} myHandle={user.handle} contacts={contactsList} onSendToChat={sendPostToChat} resolveAuthor={resolveDev} lang={lang} t={t} />
+            ) : viewedPostId ? (
               <SinglePostScreen post={posts.find(p => String(p.id) === String(viewedPostId))} onBack={() => { setViewedPostId(null); window.history.pushState({}, "", "/"); }} t={t} following={following.has(posts.find(p => String(p.id) === String(viewedPostId))?.handle)} onToggleFollow={toggleFollow} onLike={likePost} onReport={reportPost} onAddComment={addComment} onLikeComment={likeComment} onViewProfile={openProfile} myHandle={user.handle} contacts={contactsList} onSendToChat={sendPostToChat} resolveAuthor={resolveDev} lang={lang} />
             ) : viewedProfile ? (
               <OtherProfileScreen dev={viewedProfile} following={following} toggleFollow={toggleFollow} posts={posts} onBack={() => setViewedProfile(null)} onMessage={openChatWith} followsMap={followsMap} canChatWith={canChatWith} t={t} lang={lang} />
