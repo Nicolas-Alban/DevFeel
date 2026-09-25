@@ -80,7 +80,7 @@ const INITIAL_POSTS = [
     comments: [] },
 ];
 
-const STORAGE_AVAILABLE = typeof window !== "undefined" && !!(window.storage || window.__supabaseStorage);
+function isStorageAvailable() { return typeof window !== "undefined" && !!(window.storage || window.__supabaseStorage); }
 async function loadShared(key, fallback) {
   if (typeof window !== "undefined" && window.__supabaseStorage) {
     try { return await window.__supabaseStorage.loadShared(key, fallback); } catch (e) { return fallback; }
@@ -983,7 +983,7 @@ function SettingsScreen({ isDeveloper, hasPendingVerification, onRequestVerifica
         <h3 style={{ fontSize: 16, marginBottom: 10 }}>Moderación de contenido</h3>
         <p style={{ fontSize: 13, color: "var(--ink-muted)" }}>Las publicaciones marcadas como sensibles, o con 3+ reportes de la comunidad, se difuminan automáticamente hasta que decidas verlas.</p>
       </div>
-      {!STORAGE_AVAILABLE && (
+      {!isStorageAvailable() && (
         <div className="settings-card">
           <h3 style={{ fontSize: 16, marginBottom: 10 }}><WifiOff size={15} style={{ verticalAlign: "-3px", marginRight: 6 }}/>Modo local</h3>
           <p style={{ fontSize: 13, color: "var(--ink-muted)" }}>No hay conexión de almacenamiento activa: revisá que src/storage.js esté enganchado en main.jsx.</p>
@@ -992,8 +992,8 @@ function SettingsScreen({ isDeveloper, hasPendingVerification, onRequestVerifica
       <div className="settings-card">
         <h3 style={{ fontSize: 16, marginBottom: 10 }}>Información general</h3>
         <div style={{ fontSize: 13, color: "var(--ink-muted)", lineHeight: 1.9 }}>
-          <div><strong style={{ color: "var(--ink)" }}>DevFeel</strong> · versión 0.34.1</div>
-          <div>Hecho con Claude (Anthropic)</div>
+          <div><strong style={{ color: "var(--ink)" }}>DevFeel</strong> · versión 1.5.9</div>
+          <div>Elaborado con Claude (Anthropic) & ChatGPT (Codex)</div>
           <div>Creado por Nicolás Albán</div>
           <div>Proyecto 2026</div>
         </div>
@@ -1253,6 +1253,8 @@ export default function DevFeelApp() {
     try { return localStorage.getItem("devfeel_active_chat") || "@marcosile"; } catch (e) { return "@marcosile"; }
   });
   const [messagesMap, setMessagesMap] = useState({});
+  const [storageOnline, setStorageOnline] = useState(null);
+  const messageQueuesRef = useRef({});
   const [chatStatuses, setChatStatuses] = useState({});
 
   const t = makeT(lang);
@@ -1265,6 +1267,18 @@ export default function DevFeelApp() {
     notifications.filter(n => !n.read && (n.kind === "message" || n.kind === "chatrequest") && n.meta?.handle).map(n => n.meta.handle)
   ), [notifications]);
 
+  useEffect(() => {
+    let live = true;
+    const check = async () => {
+      try {
+        const online = await window.__supabaseStorage?.checkConnection?.();
+        if (live) setStorageOnline(online === true);
+      } catch { if (live) setStorageOnline(false); }
+    };
+    check();
+    const interval = setInterval(check, 15000);
+    return () => { live = false; clearInterval(interval); };
+  }, []);
   useEffect(() => {
     try {
       if (user) localStorage.setItem("devfeel_session", JSON.stringify(user));
@@ -1505,13 +1519,18 @@ export default function DevFeelApp() {
 
   const sendMessage = async (otherHandle, msg) => {
     const key = convKey(user.handle, otherHandle);
-    const current = messagesMap[key] || [];
-    const next = [...current, { ...msg, from: user.name, ts: Date.now() }];
-    setMessagesMap(prev => ({ ...prev, [key]: next }));
-    await saveShared("devfeel:messages:" + key, next);
-    pushNotification(otherHandle, "Nuevo mensaje de " + user.name, "message", { handle: user.handle });
+    const previous = messageQueuesRef.current[key] || Promise.resolve();
+    const pending = previous.then(async () => {
+      const current = await loadShared("devfeel:messages:" + key, messagesMap[key] || []);
+      const message = { ...msg, id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`, from: user.name, ts: Date.now() };
+      const next = [...current, message];
+      setMessagesMap(prev => ({ ...prev, [key]: [...(prev[key] || current), message] }));
+      await saveShared("devfeel:messages:" + key, next);
+      pushNotification(otherHandle, "Nuevo mensaje de " + user.name, "message", { handle: user.handle });
+    });
+    messageQueuesRef.current[key] = pending.catch(() => {});
+    await pending;
   };
-
   const editMessage = async (otherHandle, index, newText) => {
     const key = convKey(user.handle, otherHandle);
     const current = messagesMap[key] || [];
@@ -1604,7 +1623,7 @@ export default function DevFeelApp() {
         .app-root *::-webkit-scrollbar-thumb{ background:var(--border); border-radius:9999px; }
         .app-root *::-webkit-scrollbar-thumb:hover{ background:var(--ink-faint); }
         .app-root{ --canvas:#0E0F0C; --surface:#171813; --surface-alt:#1F2119; --border:#2A2C22; --accent:#E8B84B; --accent-ink:#3A2C0A; --ink:#F5F4EE; --ink-muted:#9A9C8E; --ink-faint:#6B6D62; --shadow:0 6px 20px rgba(0,0,0,0.35);
-          background:var(--canvas); color:var(--ink); font-family:'Inter',sans-serif; max-width:680px; margin:0 auto; border-radius:16px; overflow:hidden; position:relative; }
+          background:var(--canvas); color:var(--ink); font-family:'Inter',sans-serif; max-width:1100px; margin:0 auto; border-radius:16px; overflow:visible; position:relative; }
         .app-root.light{ --canvas:#F7F7F5; --surface:#FFFFFF; --surface-alt:#F0F0EC; --border:#DEDDD6; --accent:#C6841A; --accent-ink:#FFFFFF; --ink:#141414; --ink-muted:#55534C; --ink-faint:#83817A; --shadow:0 2px 14px rgba(20,20,20,0.07); }
         .app-root, .app-root *{ transition:background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .12s ease; }
         .app-root input::placeholder, .app-root textarea::placeholder{ color:var(--ink-faint); opacity:1; }
@@ -1614,7 +1633,7 @@ export default function DevFeelApp() {
           box-shadow:0 0 0px 1000px var(--surface-alt) inset !important;
           transition:background-color 9999s ease-in-out 0s;
         }
-        .app-header{ position:sticky; top:0; z-index:22; background:var(--canvas); }
+        .app-header{ position:sticky; top:0; z-index:22; background:var(--canvas); box-shadow:0 8px 24px rgba(0,0,0,.18); }
         .header-mark{ display:flex; align-items:center; gap:7px; font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:15px; color:var(--ink); flex-shrink:0; }
         .header-mark-icon{ display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:8px; background:var(--accent); color:var(--accent-ink); flex-shrink:0; }
         @media (max-width:420px){ .header-mark-text{ display:none; } }
@@ -1833,7 +1852,7 @@ export default function DevFeelApp() {
               onSubmit={(q) => { if (q.trim()) { setSearchQuery(q); setShowSearchResults(true); setViewedProfile(null); setViewedPostId(null); } }}
               placeholder={t("buscarPlaceholder")} t={t} />
             <div className="right">
-              <span className="conn-pill" title={STORAGE_AVAILABLE ? "Sincronizado con otros dispositivos" : "Modo local, sin sincronizar"}>{STORAGE_AVAILABLE ? <Wifi size={12}/> : <WifiOff size={12}/>}</span>
+              <span className="conn-pill" title={storageOnline === true ? "Conectado a Supabase" : storageOnline === false ? "Sin conexión con Supabase" : "Comprobando conexión…"}>{storageOnline === true ? <Wifi size={12}/> : <WifiOff size={12}/>}</span>
               <button className="icon-only-btn" onClick={() => setShowNotifs(s => !s)}><Bell size={16}/>{unreadCount > 0 && <span className="badge-dot">{unreadCount}</span>}</button>
               {showNotifs && <NotificationsDropdown notifications={notifications} onClose={() => setShowNotifs(false)} onClickNotif={handleNotifClick} />}
               <button className="icon-only-btn" onClick={() => setUser(null)}><LogOut size={16}/></button>

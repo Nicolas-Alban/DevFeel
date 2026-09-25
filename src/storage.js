@@ -21,3 +21,7 @@ export async function saveShared(key, value) {
     .upsert({ key, value, updated_at: new Date().toISOString() });
   if (error) console.error("Supabase save error:", error);
 }
+export async function checkConnection() {
+  const { error } = await supabase.from("kv_store").select("key").limit(1);
+  return !error;
+}
