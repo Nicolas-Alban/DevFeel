@@ -1,5 +1,6 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Mail, UserPlus, UserCheck, Code2, Image as ImageIcon,
   Link2, LogOut, CheckCircle2, MessageCircle, Bell, Home,
@@ -177,17 +178,21 @@ function Avatar({ name, url, size = "md" }) {
 
 function ImageLightbox({ src, onClose }) {
   const [zoom, setZoom] = useState(1);
+  const [imageReady, setImageReady] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   useEffect(() => {
     const onKeyDown = (event) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
   const changeZoom = (amount) => setZoom(value => Math.max(1, Math.min(3, +(value + amount).toFixed(1))));
-  return (
+  return createPortal((
     <div className="image-viewer" role="dialog" aria-modal="true" aria-label="Imagen ampliada" onClick={onClose}>
       <button className="image-viewer-close" aria-label="Cerrar imagen" onClick={onClose}><X size={21}/></button>
       <div className="image-viewer-stage" onClick={event => event.stopPropagation()} onWheel={event => { event.preventDefault(); changeZoom(event.deltaY < 0 ? 0.2 : -0.2); }}>
-        <img src={src} alt="Imagen del chat ampliada" onDoubleClick={event => { event.stopPropagation(); setZoom(value => value > 1 ? 1 : 2); }} style={{ width: zoom === 1 ? "auto" : `${Math.round(88 * zoom)}vw`, maxWidth: zoom === 1 ? "90vw" : "none", maxHeight: zoom === 1 ? "82dvh" : "none" }} />
+        {!imageReady && !imageFailed && <span className="image-viewer-status">Cargando imagen…</span>}
+        {imageFailed && <span className="image-viewer-status">No se pudo cargar esta imagen.</span>}
+        <img src={src} alt="Imagen ampliada" onLoad={() => setImageReady(true)} onError={() => setImageFailed(true)} onDoubleClick={event => { event.stopPropagation(); setZoom(value => value > 1 ? 1 : 2); }} style={{ width: zoom === 1 ? "auto" : `${Math.round(88 * zoom)}vw`, maxWidth: zoom === 1 ? "90vw" : "none", maxHeight: zoom === 1 ? "82dvh" : "none" }} />
       </div>
       <div className="image-viewer-controls" onClick={event => event.stopPropagation()}>
         <button aria-label="Alejar" onClick={() => changeZoom(-0.25)}><Minus size={18}/></button>
@@ -195,7 +200,15 @@ function ImageLightbox({ src, onClose }) {
         <button aria-label="Acercar" onClick={() => changeZoom(0.25)}><Plus size={18}/></button>
       </div>
     </div>
-  );
+  ), document.body);
+}
+
+function EnlargeableImage({ src, alt = "Imagen", buttonClass = "post-image-button", imageClass = "post-media" }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button type="button" className={buttonClass} aria-label="Abrir imagen en grande" onClick={() => setOpen(true)}><img src={src} alt={alt} className={imageClass} /></button>
+    {open && <ImageLightbox src={src} onClose={() => setOpen(false)} />}
+  </>;
 }
 
 function EmojiPicker({ onPick }) {
@@ -453,9 +466,12 @@ function ShareMenu({ post, contacts, onSendToChat }) {
   const openMenu = () => {
     const rect = btnRef.current?.getBoundingClientRect();
     if (rect) {
-      const popW = 230;
-      const left = Math.min(rect.left, window.innerWidth - popW - 12);
-      setPos({ top: rect.bottom + 6, left: Math.max(12, left) });
+      const popW = Math.min(250, window.innerWidth - 24);
+      const popH = Math.min(320, window.innerHeight - 24);
+      const belowTop = rect.bottom + 6;
+      const top = belowTop + popH > window.innerHeight - 12 ? Math.max(12, rect.top - popH - 6) : belowTop;
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - popW - 12));
+      setPos({ top, left });
     }
     setPicking(false);
     setSentTo(null);
@@ -479,12 +495,12 @@ function ShareMenu({ post, contacts, onSendToChat }) {
         <>
           <div className="overlay-catcher" onClick={closeAll} />
           {!picking ? (
-            <div className="comments-list floating" style={{ top: pos.top, left: pos.left }}>
+            <div className="comments-list floating" style={{ top: pos.top, left: pos.left, width: "min(250px, calc(100vw - 24px))", maxHeight: "calc(100dvh - 24px)", overflowY: "auto" }}>
               <button className="pill-btn-outline" style={{ width: "100%", marginBottom: 8 }} onClick={externalShare}><ExternalLink size={13} style={{ marginRight: 6 }}/>Compartir enlace</button>
               <button className="pill-btn-outline" style={{ width: "100%" }} onClick={() => setPicking(true)}><MessageCircle size={13} style={{ marginRight: 6 }}/>Enviar a un chat</button>
             </div>
           ) : (
-            <div className="comments-list floating" style={{ top: pos.top, left: pos.left }}>
+            <div className="comments-list floating" style={{ top: pos.top, left: pos.left, width: "min(250px, calc(100vw - 24px))", maxHeight: "calc(100dvh - 24px)", overflowY: "auto" }}>
               <div className="notif-head"><span>Enviar a...</span><button onClick={closeAll}><X size={14}/></button></div>
               {contacts.map(c => (
                 <div key={c.handle} className="contact-pick-row" onClick={() => pickContact(c)}>
@@ -543,7 +559,7 @@ function PostCard({ post, following, onToggleFollow, onLike, onReport, onAddComm
           {post.title && <h3 className="post-title">{post.title}</h3>}
           {post.content && <TextStyled text={post.content} fontSize={post.fontSize} textStyle={post.textStyle} bold={post.bold} italic={post.italic} />}
           {post.codeContent && <CodeBlock content={post.codeContent} lang={post.codeLang} textStyle={post.textStyle} bold={post.bold} italic={post.italic} />}
-          {post.imageUrl && <img src={post.imageUrl} alt="" className="post-media" />}
+          {post.imageUrl && <EnlargeableImage src={post.imageUrl} alt="Imagen de la publicación" />}
           {post.videoUrl && <video src={post.videoUrl} controls className="post-media" />}
           {post.linkUrl && <a href={post.linkUrl} target="_blank" rel="noreferrer" className="link-card"><Link2 size={14} /><span>{post.linkUrl}</span></a>}
           {post.demo && (
@@ -861,7 +877,7 @@ function OtherProfileScreen({ dev, following, toggleFollow, posts, onBack, onMes
           {p.title && <h3 className="post-title">{p.title}</h3>}
           {p.content && <TextStyled text={p.content} fontSize={p.fontSize} textStyle={p.textStyle} bold={p.bold} italic={p.italic} />}
           {p.codeContent && <CodeBlock content={p.codeContent} lang={p.codeLang} textStyle={p.textStyle} bold={p.bold} italic={p.italic} />}
-          {p.imageUrl && <img src={p.imageUrl} alt="" className="post-media" />}
+          {p.imageUrl && <EnlargeableImage src={p.imageUrl} alt="Imagen de la publicación" />}
           {p.videoUrl && <video src={p.videoUrl} controls className="post-media" />}
           {p.linkUrl && <a href={p.linkUrl} target="_blank" rel="noreferrer" className="link-card"><Link2 size={14} /><span>{p.linkUrl}</span></a>}
         </div></div>
@@ -1032,7 +1048,7 @@ function SettingsScreen({ isDeveloper, hasPendingVerification, onRequestVerifica
 }
 
 /* ---------- CHAT ---------- */
-function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onTogglePin, onOpenImage, highlighted }) {
+function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onTogglePin, highlighted }) {
   const mine = msg.from === myName;
   const [menuOpen, setMenuOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -1063,7 +1079,7 @@ function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onToggle
         {msg.replyTo && <div className="reply-quote">{msg.replyTo}</div>}
         {msg.type === "text" && <span>{msg.content}{msg.edited && <span className="edited-tag"> (editado)</span>}</span>}
         {msg.type === "sticker" && <span style={{ fontSize: 34 }}>{msg.content}</span>}
-        {msg.type === "image" && <button className="chat-image-button" aria-label="Abrir imagen en grande" onClick={() => onOpenImage(msg.url)}><img src={msg.url} alt="Foto enviada en el chat" className="chat-img" /></button>}
+        {msg.type === "image" && <EnlargeableImage src={msg.url} alt="Foto enviada en el chat" buttonClass="chat-image-button" imageClass="chat-img" />}
         {msg.type === "code" && <div className="chat-terminal"><div className="chat-terminal-bar"><span/><span/><span/></div><pre>{msg.content}</pre></div>}
         {msg.type === "audio" && <audio controls src={msg.url} className="audio-player" />}
         {msg.type === "link" && <a href={msg.url} target="_blank" rel="noreferrer" className="chat-link"><Link2 size={13} /> {msg.url}</a>}
@@ -1123,7 +1139,6 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
   const [replyTo, setReplyTo] = useState(null);
   const [editingIndex, setEditingIndex] = useState(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
-  const [imageToView, setImageToView] = useState(null);
   const [highlightedMessageIndex, setHighlightedMessageIndex] = useState(null);
   const highlightTimer = useRef(null);
   const fileInputRef = useRef(null);
@@ -1217,7 +1232,7 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
 
         <div className="messages" ref={messagesContainerRef}>
           {messages.length === 0 && state !== "none" && <p className="no-comments" style={{ textAlign: "center", marginTop: 20 }}>Todavía no hay mensajes. Decí hola 👋</p>}
-          {messages.map((m, i) => <MessageBubble key={i} msg={m} index={i} myName={myName} onReply={setReplyTo} onEdit={startEdit} onDelete={(idx) => deleteMessage(active.handle, idx)} onTogglePin={(idx) => togglePinMessage(active.handle, idx)} onOpenImage={setImageToView} highlighted={highlightedMessageIndex === i} />)}
+          {messages.map((m, i) => <MessageBubble key={i} msg={m} index={i} myName={myName} onReply={setReplyTo} onEdit={startEdit} onDelete={(idx) => deleteMessage(active.handle, idx)} onTogglePin={(idx) => togglePinMessage(active.handle, idx)} highlighted={highlightedMessageIndex === i} />)}
         </div>
 
         {state === "direct" || state === "accepted" ? (
@@ -1251,7 +1266,6 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
           </div>
         )}
       </div>
-      {imageToView && <ImageLightbox src={imageToView} onClose={() => setImageToView(null)} />}
     </div>
   );
 }
@@ -1919,6 +1933,7 @@ export default function DevFeelApp() {
         .chat-image-button{display:block;max-width:100%;padding:0;border:0;border-radius:10px;background:transparent;cursor:zoom-in;overflow:hidden}.chat-image-button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.chat-img{max-width:min(65vw,360px);max-height:420px;object-fit:cover;transition:transform .2s ease}.chat-image-button:hover .chat-img{transform:scale(1.025)}
         .pinned-banner{width:100%;text-align:left;cursor:pointer}.pinned-banner span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pinned-banner:hover{color:var(--ink);background:var(--surface)}.pinned-jump-icon{transform:rotate(180deg);opacity:.65}.message-highlight .bubble{outline:2px solid var(--accent);outline-offset:3px;animation:message-pulse 1.8s ease-out}@keyframes message-pulse{0%,35%{box-shadow:0 0 0 5px color-mix(in srgb,var(--accent) 30%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
         .attach-thumb-button{display:inline-flex;padding:0;border:0;border-radius:9px;background:transparent;cursor:zoom-in;vertical-align:top}.attach-thumb-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.attach-thumb{width:58px;height:58px;border-radius:9px;object-fit:cover;display:block}
+        .post-image-button{display:block;width:100%;padding:0;border:0;border-radius:10px;background:transparent;text-align:left;cursor:zoom-in;overflow:hidden}.post-image-button .post-media{cursor:inherit}.image-viewer-status{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;font-size:14px}.image-viewer-stage img{position:relative;z-index:1}.image-viewer-stage:has(.image-viewer-status) img:not([src=""]){min-height:1px}.comments-list.floating{overscroll-behavior:contain;scrollbar-width:thin}
         .image-viewer{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.92);backdrop-filter:blur(8px)}.image-viewer-stage{display:flex;align-items:center;justify-content:center;width:100%;height:100%;overflow:auto;overscroll-behavior:contain;padding:54px 16px 82px}.image-viewer-stage img{display:block;flex:none;object-fit:contain;border-radius:3px;user-select:none;-webkit-user-drag:none}.image-viewer-close{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px;z-index:2;width:44px;height:44px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.2);border-radius:50%;background:rgba(20,20,20,.72);color:#fff;cursor:pointer}.image-viewer-controls{position:absolute;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:2;display:flex;align-items:center;gap:6px;padding:6px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(24,24,24,.84);color:#fff}.image-viewer-controls button{width:38px;height:38px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.image-viewer-controls button:hover{background:rgba(255,255,255,.14)}.image-viewer-controls .zoom-reset{width:auto;min-width:52px;font-size:12px;font-weight:650}.image-viewer-stage img{cursor:zoom-in}.image-viewer-stage img:active{cursor:grabbing}
         @media(max-width:760px){.chat-img{max-width:min(72vw,320px);max-height:52vh}.image-viewer-stage{padding:58px 10px 86px}.image-viewer-stage img{max-width:92vw}}
         .messages{flex:1 1 auto;min-height:0;overscroll-behavior:contain;overflow-y:auto;scroll-behavior:smooth;overflow-anchor:auto}.bubble{max-width:min(78%,520px);overflow-wrap:anywhere}.composer-row{flex:0 0 auto;background:var(--canvas)}
