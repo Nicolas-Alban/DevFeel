@@ -175,6 +175,29 @@ function Avatar({ name, url, size = "md" }) {
   return <div className={cls}>{initials(name)}</div>;
 }
 
+function ImageLightbox({ src, onClose }) {
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    const onKeyDown = (event) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+  const changeZoom = (amount) => setZoom(value => Math.max(1, Math.min(3, +(value + amount).toFixed(1))));
+  return (
+    <div className="image-viewer" role="dialog" aria-modal="true" aria-label="Imagen ampliada" onClick={onClose}>
+      <button className="image-viewer-close" aria-label="Cerrar imagen" onClick={onClose}><X size={21}/></button>
+      <div className="image-viewer-stage" onClick={event => event.stopPropagation()} onWheel={event => { event.preventDefault(); changeZoom(event.deltaY < 0 ? 0.2 : -0.2); }}>
+        <img src={src} alt="Imagen del chat ampliada" onDoubleClick={event => { event.stopPropagation(); setZoom(value => value > 1 ? 1 : 2); }} style={{ width: zoom === 1 ? "auto" : `${Math.round(88 * zoom)}vw`, maxWidth: zoom === 1 ? "90vw" : "none", maxHeight: zoom === 1 ? "82dvh" : "none" }} />
+      </div>
+      <div className="image-viewer-controls" onClick={event => event.stopPropagation()}>
+        <button aria-label="Alejar" onClick={() => changeZoom(-0.25)}><Minus size={18}/></button>
+        <button className="zoom-reset" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+        <button aria-label="Acercar" onClick={() => changeZoom(0.25)}><Plus size={18}/></button>
+      </div>
+    </div>
+  );
+}
+
 function EmojiPicker({ onPick }) {
   const [open, setOpen] = useState(false);
   return (
@@ -1009,7 +1032,7 @@ function SettingsScreen({ isDeveloper, hasPendingVerification, onRequestVerifica
 }
 
 /* ---------- CHAT ---------- */
-function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onTogglePin }) {
+function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onTogglePin, onOpenImage, highlighted }) {
   const mine = msg.from === myName;
   const [menuOpen, setMenuOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -1034,13 +1057,13 @@ function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onToggle
   }
 
   return (
-    <div className={"msg-row" + (mine ? " mine" : "")}>
+    <div className={"msg-row" + (mine ? " mine" : "") + (highlighted ? " message-highlight" : "")} data-message-index={index}>
       {msg.pinned && <div className="pin-flag"><Pin size={10}/> Fijado</div>}
       <div className={"bubble" + (mine ? " mine" : "") + (msg.type === "audio" ? " audio-bubble" : "")} onDoubleClick={() => onReply(msg)} onTouchStart={handleTouchStart} onTouchEnd={cancelTouch} onTouchMove={cancelTouch}>
         {msg.replyTo && <div className="reply-quote">{msg.replyTo}</div>}
         {msg.type === "text" && <span>{msg.content}{msg.edited && <span className="edited-tag"> (editado)</span>}</span>}
         {msg.type === "sticker" && <span style={{ fontSize: 34 }}>{msg.content}</span>}
-        {msg.type === "image" && <img src={msg.url} alt="" className="chat-img" />}
+        {msg.type === "image" && <button className="chat-image-button" aria-label="Abrir imagen en grande" onClick={() => onOpenImage(msg.url)}><img src={msg.url} alt="Foto enviada en el chat" className="chat-img" /></button>}
         {msg.type === "code" && <div className="chat-terminal"><div className="chat-terminal-bar"><span/><span/><span/></div><pre>{msg.content}</pre></div>}
         {msg.type === "audio" && <audio controls src={msg.url} className="audio-player" />}
         {msg.type === "link" && <a href={msg.url} target="_blank" rel="noreferrer" className="chat-link"><Link2 size={13} /> {msg.url}</a>}
@@ -1100,12 +1123,24 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
   const [replyTo, setReplyTo] = useState(null);
   const [editingIndex, setEditingIndex] = useState(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [imageToView, setImageToView] = useState(null);
+  const [highlightedMessageIndex, setHighlightedMessageIndex] = useState(null);
+  const highlightTimer = useRef(null);
   const fileInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const active = contacts.find(c => c.handle === activeHandle) || contacts[0];
   const state = active ? chatStateFor(active) : "none";
   const canMessage = state === "direct" || state === "accepted";
-  const pinnedMsg = messages.find(m => m.pinned && !m.deleted);
+  const pinnedIndex = messages.findIndex(m => m.pinned && !m.deleted);
+  const pinnedMsg = pinnedIndex >= 0 ? messages[pinnedIndex] : null;
+  const jumpToPinned = () => {
+    if (pinnedIndex < 0) return;
+    const target = messagesContainerRef.current?.querySelector(`[data-message-index="${pinnedIndex}"]`);
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageIndex(pinnedIndex);
+    clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightedMessageIndex(null), 1800);
+  };
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -1164,12 +1199,12 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
             <button className="tool-btn" title="Archivos compartidos" onClick={() => setShowInfo(s => !s)}><Info size={15}/></button>
           </div>
         )}
-        {pinnedMsg && <div className="pinned-banner"><Pin size={12}/> {pinnedMsg.content || (pinnedMsg.type === "image" ? "Imagen fijada" : "Mensaje fijado")}</div>}
+        {pinnedMsg && <button className="pinned-banner" title="Ir al mensaje fijado" onClick={jumpToPinned}><Pin size={12}/> <span>{pinnedMsg.content || (pinnedMsg.type === "image" ? "Imagen fijada" : pinnedMsg.type === "audio" ? "Audio fijado" : "Mensaje fijado")}</span><ArrowLeft size={13} className="pinned-jump-icon"/></button>}
         {showInfo && (
           <div className="attachments-panel">
             <div className="notif-head"><span>Archivos compartidos</span><button onClick={() => setShowInfo(false)}><X size={14}/></button></div>
             {attachments.length === 0 && <p className="no-comments">Todavía no hay imágenes ni links en esta conversación.</p>}
-            {attachments.map((a, i) => a.type === "image" ? <img key={i} src={a.url} alt="" className="attach-thumb" /> : <a key={i} href={a.url} target="_blank" rel="noreferrer" className="chat-link" style={{ display: "block", marginBottom: 6 }}>{a.url}</a>)}
+            {attachments.map((a, i) => a.type === "image" ? <button key={i} className="attach-thumb-button" aria-label="Abrir imagen" onClick={() => setImageToView(a.url)}><img src={a.url} alt="Imagen compartida" className="attach-thumb" /></button> : <a key={i} href={a.url} target="_blank" rel="noreferrer" className="chat-link" style={{ display: "block", marginBottom: 6 }}>{a.url}</a>)}
           </div>
         )}
 
@@ -1182,7 +1217,7 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
 
         <div className="messages" ref={messagesContainerRef}>
           {messages.length === 0 && state !== "none" && <p className="no-comments" style={{ textAlign: "center", marginTop: 20 }}>Todavía no hay mensajes. Decí hola 👋</p>}
-          {messages.map((m, i) => <MessageBubble key={i} msg={m} index={i} myName={myName} onReply={setReplyTo} onEdit={startEdit} onDelete={(idx) => deleteMessage(active.handle, idx)} onTogglePin={(idx) => togglePinMessage(active.handle, idx)} />)}
+          {messages.map((m, i) => <MessageBubble key={i} msg={m} index={i} myName={myName} onReply={setReplyTo} onEdit={startEdit} onDelete={(idx) => deleteMessage(active.handle, idx)} onTogglePin={(idx) => togglePinMessage(active.handle, idx)} onOpenImage={setImageToView} highlighted={highlightedMessageIndex === i} />)}
         </div>
 
         {state === "direct" || state === "accepted" ? (
@@ -1216,6 +1251,7 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
           </div>
         )}
       </div>
+      {imageToView && <ImageLightbox src={imageToView} onClose={() => setImageToView(null)} />}
     </div>
   );
 }
@@ -1880,6 +1916,11 @@ export default function DevFeelApp() {
         .contacts-col{min-height:0;overflow-y:auto;border-right:1px solid var(--border);background:var(--surface)}.contacts-col h4{position:sticky;top:0;z-index:3;margin:0;background:color-mix(in srgb,var(--surface) 96%,transparent);backdrop-filter:blur(14px);font-size:14px;color:var(--ink);text-transform:none;letter-spacing:0;padding:18px 16px 12px}
         .contact-item{gap:11px;padding:11px 14px;border-bottom:1px solid var(--border)}.contact-item.active,.contact-item:hover{background:var(--surface-alt)}.contact-item>div{min-width:0}.contact-name,.contact-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .chat-col{height:100%;min-height:0;overflow:hidden;background:var(--canvas)}.chat-head{position:relative;z-index:4;flex:0 0 auto;min-height:68px;background:color-mix(in srgb,var(--canvas) 96%,transparent);backdrop-filter:blur(14px);box-shadow:0 1px 0 var(--border)}
+        .chat-image-button{display:block;max-width:100%;padding:0;border:0;border-radius:10px;background:transparent;cursor:zoom-in;overflow:hidden}.chat-image-button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.chat-img{max-width:min(65vw,360px);max-height:420px;object-fit:cover;transition:transform .2s ease}.chat-image-button:hover .chat-img{transform:scale(1.025)}
+        .pinned-banner{width:100%;text-align:left;cursor:pointer}.pinned-banner span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pinned-banner:hover{color:var(--ink);background:var(--surface)}.pinned-jump-icon{transform:rotate(180deg);opacity:.65}.message-highlight .bubble{outline:2px solid var(--accent);outline-offset:3px;animation:message-pulse 1.8s ease-out}@keyframes message-pulse{0%,35%{box-shadow:0 0 0 5px color-mix(in srgb,var(--accent) 30%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
+        .attach-thumb-button{display:inline-flex;padding:0;border:0;border-radius:9px;background:transparent;cursor:zoom-in;vertical-align:top}.attach-thumb-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.attach-thumb{width:58px;height:58px;border-radius:9px;object-fit:cover;display:block}
+        .image-viewer{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.92);backdrop-filter:blur(8px)}.image-viewer-stage{display:flex;align-items:center;justify-content:center;width:100%;height:100%;overflow:auto;overscroll-behavior:contain;padding:54px 16px 82px}.image-viewer-stage img{display:block;flex:none;object-fit:contain;border-radius:3px;user-select:none;-webkit-user-drag:none}.image-viewer-close{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px;z-index:2;width:44px;height:44px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.2);border-radius:50%;background:rgba(20,20,20,.72);color:#fff;cursor:pointer}.image-viewer-controls{position:absolute;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:2;display:flex;align-items:center;gap:6px;padding:6px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(24,24,24,.84);color:#fff}.image-viewer-controls button{width:38px;height:38px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.image-viewer-controls button:hover{background:rgba(255,255,255,.14)}.image-viewer-controls .zoom-reset{width:auto;min-width:52px;font-size:12px;font-weight:650}.image-viewer-stage img{cursor:zoom-in}.image-viewer-stage img:active{cursor:grabbing}
+        @media(max-width:760px){.chat-img{max-width:min(72vw,320px);max-height:52vh}.image-viewer-stage{padding:58px 10px 86px}.image-viewer-stage img{max-width:92vw}}
         .messages{flex:1 1 auto;min-height:0;overscroll-behavior:contain;overflow-y:auto;scroll-behavior:smooth;overflow-anchor:auto}.bubble{max-width:min(78%,520px);overflow-wrap:anywhere}.composer-row{flex:0 0 auto;background:var(--canvas)}
         .pinned-banner,.attachments-panel,.request-banner,.reply-bar,.blocked-banner,.request-compose{flex:0 0 auto}
         @media(max-width:1380px){.mobile-search{display:flex}.desktop-shell{grid-template-columns:76px minmax(0,840px);gap:18px;max-width:1000px;padding:0 14px}.side-nav{padding-inline:2px}.side-brand{padding:12px 10px 20px}.side-brand .header-mark-text,.side-link span:not(.side-badge),.side-compose span,.side-account>span,.side-account>svg{display:none}.side-link{justify-content:center;padding:14px 10px}.side-link.active:before{left:-2px}.side-compose{width:48px;height:48px;margin:18px auto auto;padding:0}.side-account{justify-content:center;padding:7px}.right-rail{display:none}}
