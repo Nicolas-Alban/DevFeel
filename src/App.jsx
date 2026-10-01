@@ -263,7 +263,7 @@ function LoginScreen({ onLogin, existingHandles, onClaimRequest, onRegisterCrede
   const suggestedBase = handleInput.slice(0, Math.max(1, 9 - suffix.length));
   const suggestedHandle = "@" + suggestedBase + suffix;
 
-  const finish = (handleOverride) => {
+  const finish = async (handleOverride) => {
     if (!trimmedNick) { setError("Escribe un apodo para continuar."); return; }
     if (trimmedNick.length > 20) { setError("El apodo puede tener máximo 20 caracteres."); return; }
     if (handleInput === "") { setError("Elegí un @usuario (solo letras, números y guion bajo)."); return; }
@@ -274,7 +274,7 @@ function LoginScreen({ onLogin, existingHandles, onClaimRequest, onRegisterCrede
     if (password.length < 6) { setError("La contraseña debe tener al menos 6 caracteres."); return; }
     if (password !== password2) { setError("Las contraseñas no coinciden."); return; }
     setError("");
-    onRegisterCredentials(finalHandle, password);
+    await onRegisterCredentials(finalHandle, password);
     onLogin({ name: trimmedNick, handle: finalHandle, via: pendingVia });
   };
   const useSuggested = () => finish(suggestedHandle);
@@ -308,6 +308,7 @@ function LoginScreen({ onLogin, existingHandles, onClaimRequest, onRegisterCrede
     return (
       <div className="login-wrap"><div className="login-card">
         <BrandLogo />
+        <button type="button" className="login-back" onClick={() => setStep("options")}><ArrowLeft size={15}/> Volver a opciones</button>
         <h2>{t("crearPerfil")}</h2>
         <p className="sub">El apodo es lo que ven los demás (emojis y espacios permitidos, máx. 20). El @usuario te identifica, es único (5-9 caracteres) y no se podrá cambiar después.</p>
         <div style={{ position: "relative" }}>
@@ -542,7 +543,7 @@ function PostCard({ post, following, onToggleFollow, onLike, onReport, onAddComm
   );
 }
 
-function FeedScreen({ posts, likePost, reportPost, addComment, likeComment, publishPost, following, toggleFollow, isDeveloper, searchQuery, onViewProfile, myHandle, contacts, onSendToChat, resolveAuthor, affinity, lang, t }) {
+function FeedScreen({ posts, likePost, reportPost, addComment, likeComment, publishPost, following, toggleFollow, isDeveloper, searchQuery, onViewProfile, myHandle, contacts, onSendToChat, resolveAuthor, affinity, lang, t, composeSignal, onComposeOpened }) {
   const [composerOpen, setComposerOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [sectionDraft, setSectionDraft] = useState(null);
@@ -566,6 +567,12 @@ function FeedScreen({ posts, likePost, reportPost, addComment, likeComment, publ
   const fileInputRef = useRef(null);
   const videoInputRef = useRef(null);
 
+  useEffect(() => {
+    if (composeSignal > 0) {
+      setComposerOpen(true);
+      onComposeOpened?.();
+    }
+  }, [composeSignal, onComposeOpened]);
   const hasType = (id) => selectedTypes.has(id);
   const toggleType = (id) => {
     setSelectedTypes(prev => {
@@ -629,7 +636,7 @@ function FeedScreen({ posts, likePost, reportPost, addComment, likeComment, publ
   return (
     <div>
       {!composerOpen ? (
-        <button className="new-post-fab" title={t("publicarAlgo")} onClick={() => setComposerOpen(true)}><Plus size={16}/> {t("publicarAlgo")}</button>
+        <button className="new-post-fab" title={t("publicarAlgo")} onClick={() => setComposerOpen(true)}><Avatar name={myHandle}/><span className="compose-placeholder">¿Qué estás construyendo?</span><span className="compose-cta"><Plus size={16}/> Publicar</span></button>
       ) : (
         <div className="composer">
           <div className="composer-head"><span>Nueva publicación</span><button className="icon-only-btn" onClick={resetComposer}><X size={14}/></button></div>
@@ -1095,14 +1102,15 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
   const [editingIndex, setEditingIndex] = useState(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const fileInputRef = useRef(null);
-  const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const active = contacts.find(c => c.handle === activeHandle) || contacts[0];
   const state = active ? chatStateFor(active) : "none";
   const canMessage = state === "direct" || state === "accepted";
   const pinnedMsg = messages.find(m => m.pinned && !m.deleted);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ block: "end" });
+    const container = messagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
   }, [messages, activeHandle]);
 
   const sortedContacts = useMemo(() => {
@@ -1173,10 +1181,9 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
           </div>
         )}
 
-        <div className="messages">
+        <div className="messages" ref={messagesContainerRef}>
           {messages.length === 0 && state !== "none" && <p className="no-comments" style={{ textAlign: "center", marginTop: 20 }}>Todavía no hay mensajes. Decí hola 👋</p>}
           {messages.map((m, i) => <MessageBubble key={i} msg={m} index={i} myName={myName} onReply={setReplyTo} onEdit={startEdit} onDelete={(idx) => deleteMessage(active.handle, idx)} onTogglePin={(idx) => togglePinMessage(active.handle, idx)} />)}
-          <div ref={messagesEndRef} />
         </div>
 
         {state === "direct" || state === "accepted" ? (
@@ -1232,6 +1239,7 @@ export default function DevFeelApp() {
   const [viewedPostId, setViewedPostId] = useState(null);
   const pendingPostIdRef = useRef(null);
   const [tab, setTab] = useState("feed");
+  const [composeSignal, setComposeSignal] = useState(0);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [acceptsMsgs, setAcceptsMsgs] = useState(true);
   const [bio, setBio] = useState("Construyendo cosas pequeñas y compartiéndolas acá.");
@@ -1526,7 +1534,7 @@ export default function DevFeelApp() {
       const next = [...current, message];
       setMessagesMap(prev => ({ ...prev, [key]: [...(prev[key] || current), message] }));
       await saveShared("devfeel:messages:" + key, next);
-      pushNotification(otherHandle, "Nuevo mensaje de " + user.name, "message", { handle: user.handle });
+      await pushNotification(otherHandle, "Nuevo mensaje de " + user.name, "message", { handle: user.handle });
     });
     messageQueuesRef.current[key] = pending.catch(() => {});
     await pending;
@@ -1580,6 +1588,8 @@ export default function DevFeelApp() {
 
   const openProfile = (handle) => {
     if (!handle) return;
+    setShowSearchResults(false);
+    setViewedPostId(null);
     if (handle === user.handle) { setTab("perfil"); setViewedProfile(null); return; }
     const dev = allDevs.find(d => d.handle === handle);
     if (dev) setViewedProfile(dev);
@@ -1839,18 +1849,69 @@ export default function DevFeelApp() {
           .composer{ padding:14px; }
           .demo-iframe{ height:130px; }
         }
-      `}</style>
+        .app-root{width:100%;max-width:none;min-height:100vh;margin:0;border-radius:0;overflow:visible;background:var(--canvas);color:var(--ink)}
+        .desktop-shell{display:grid;grid-template-columns:220px minmax(0,700px) 310px;gap:28px;justify-content:center;max-width:1420px;min-height:100vh;margin:0 auto;padding:0 24px}
+        .side-nav{position:sticky;top:0;height:100dvh;display:flex;flex-direction:column;padding:18px 8px 14px;min-width:0}
+        .side-brand{padding:10px 16px 22px}.side-brand .header-mark{font-size:20px}.side-brand .header-mark-icon{width:34px;height:34px;border-radius:11px}
+        .side-nav-links{display:flex;flex-direction:column;gap:5px}
+        .side-link{position:relative;display:flex;align-items:center;gap:16px;width:100%;padding:13px 16px;border:0;border-radius:12px;background:transparent;color:var(--ink-muted);font:500 15px Inter,sans-serif;text-align:left;cursor:pointer}
+        .side-link:hover,.side-link.active{background:#191b1e;color:var(--ink)}.side-link.active{font-weight:700}.side-link.active:before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:4px;background:var(--accent)}
+        .side-badge{margin-left:auto;min-width:18px;padding:2px 5px;border-radius:99px;background:#e85e68;color:#fff;font-size:10px;text-align:center}
+        .side-compose{display:flex;align-items:center;justify-content:center;gap:9px;margin:18px 8px auto;padding:13px 18px;border:0;border-radius:999px;background:var(--accent);color:#17140c;font-weight:750;font-size:14px;cursor:pointer}
+        .side-account{display:flex;align-items:center;gap:10px;padding:10px 8px;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--ink);text-align:left;cursor:pointer}
+        .side-account>span,.rail-person>span{display:flex;flex:1;min-width:0;flex-direction:column;gap:3px}.side-account strong,.rail-person strong{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.side-account small,.rail-person small{font-size:11px;color:var(--ink-faint)}
+        .main-column{min-width:0;min-height:100vh;border-left:1px solid var(--border);border-right:1px solid var(--border);background:var(--canvas)}
+        .app-header{position:sticky;top:0;z-index:22;background:rgba(14,15,12,.94);backdrop-filter:blur(18px);border-bottom:1px solid var(--border)}
+        .top-bar{min-height:58px;padding:10px 20px}.page-title{font-size:18px;letter-spacing:-.02em}.mobile-search{display:none;flex:1;min-width:0}
+        .main-column .tab-bar{display:none}.screen{padding:16px 0 48px}
+        .right-rail{position:sticky;top:0;align-self:start;height:100dvh;overflow-y:auto;padding:18px 2px 22px;scrollbar-width:thin}
+        .rail-search{margin-bottom:18px}.rail-search .search-box{padding:12px 16px;background:#17191c;border-color:transparent}.rail-search .search-box-wrap{margin:0}.rail-search .search-box input{font-size:14px}
+        .rail-card{margin-bottom:16px;padding:16px;border:1px solid var(--border);border-radius:18px;background:#141619}.rail-card h3{margin:0 0 14px;font-size:16px;letter-spacing:-.02em}
+        .rail-person{display:flex;align-items:center;gap:10px;width:100%;padding:9px 0;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer}.rail-person:hover strong{color:var(--accent)}.rail-arrow{transform:rotate(0deg);color:var(--ink-faint)}
+        .rail-more{width:100%;padding:12px 0 0;border:0;border-top:1px solid var(--border);background:transparent;color:var(--accent);text-align:left;font-size:13px;cursor:pointer}
+        .rail-status{display:flex;align-items:center;gap:10px}.rail-status>div{display:flex;flex-direction:column;gap:4px}.rail-status strong{font-size:13px}.rail-status small,.rail-footer{font-size:11px;color:var(--ink-faint)}
+        .status-dot{width:9px;height:9px;flex:none;border-radius:50%;background:#e85e68}.status-dot.online{background:#45c987;box-shadow:0 0 0 4px rgba(69,201,135,.12)}.rail-footer{padding:4px 8px;line-height:1.7}
+        .login-wrap{min-height:100dvh;align-items:center}.login-back{display:flex;align-items:center;gap:7px;margin:0 auto 14px;padding:8px 12px;border:0;border-radius:999px;background:var(--surface-alt);color:var(--ink-muted);cursor:pointer}
+        .new-post-fab{justify-content:flex-start;gap:12px;margin:0;padding:15px 18px;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;color:var(--ink-muted)}.new-post-fab:hover{background:rgba(255,255,255,.025)}.compose-placeholder{flex:1;text-align:left;font-size:16px}.compose-cta{display:flex;align-items:center;gap:6px;padding:9px 16px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700}.new-post-fab>.avatar{width:42px;height:42px}
+        .composer{margin:0;padding:16px 18px;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent}.composer-head{font-size:14px}.composer textarea{min-height:82px;border:0;background:transparent;font-size:17px}.composer .type-row{margin-top:10px}
+        .card{margin:0;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;transition:background .15s}.card:hover{background:rgba(255,255,255,.018)}.card-head{padding:16px 18px 8px}.card-body{padding:0 18px 12px}.card-footer{padding:10px 24px;border-top:0;justify-content:space-between;max-width:420px}.card-footer .report{margin-left:0}
+        .back-btn{padding:9px 12px;border-radius:999px;background:var(--surface-alt)}.back-btn:hover,.login-back:hover{color:var(--ink);background:#292c30}
+        .chat-shell{display:grid;grid-template-columns:240px minmax(0,1fr);height:min(760px,calc(100dvh - 150px));min-height:500px;margin:0;overflow:hidden;border:1px solid var(--border);border-radius:16px;background:var(--canvas)}
+        .contacts-col{min-height:0;overflow-y:auto;border-right:1px solid var(--border);background:#101215}.contacts-col h4{position:sticky;top:0;z-index:3;margin:0;background:rgba(16,18,21,.96);backdrop-filter:blur(14px);font-size:14px;color:var(--ink);text-transform:none;letter-spacing:0;padding:18px 16px 12px}
+        .contact-item{gap:11px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.035)}.contact-item.active,.contact-item:hover{background:#1c2024}.contact-item>div{min-width:0}.contact-name,.contact-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .chat-col{height:100%;min-height:0;overflow:hidden;background:var(--canvas)}.chat-head{position:relative;z-index:4;flex:0 0 auto;min-height:68px;background:rgba(14,15,12,.96);backdrop-filter:blur(14px);box-shadow:0 1px 0 var(--border)}
+        .messages{flex:1 1 auto;min-height:0;overscroll-behavior:contain;overflow-y:auto;scroll-behavior:smooth;overflow-anchor:auto}.bubble{max-width:min(78%,520px);overflow-wrap:anywhere}.composer-row{flex:0 0 auto;background:var(--canvas)}
+        .pinned-banner,.attachments-panel,.request-banner,.reply-bar,.blocked-banner,.request-compose{flex:0 0 auto}
+        @media(max-width:1380px){.mobile-search{display:flex}.desktop-shell{grid-template-columns:76px minmax(0,840px);gap:18px;max-width:1000px;padding:0 14px}.side-nav{padding-inline:2px}.side-brand{padding:12px 10px 20px}.side-brand .header-mark-text,.side-link span:not(.side-badge),.side-compose span,.side-account>span,.side-account>svg{display:none}.side-link{justify-content:center;padding:14px 10px}.side-link.active:before{left:-2px}.side-compose{width:48px;height:48px;margin:18px auto auto;padding:0}.side-account{justify-content:center;padding:7px}.right-rail{display:none}}
+        @media(max-width:760px){.desktop-shell{display:block;padding:0;max-width:none}.side-nav,.right-rail{display:none}.main-column{width:100%;min-height:100dvh;border:0}.app-header{position:sticky}.top-bar{gap:9px;padding:9px 12px}.page-title{font-size:17px}.mobile-search{display:block}.main-column .tab-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;justify-content:space-around;gap:0;padding:7px 4px calc(7px + env(safe-area-inset-bottom));border-top:1px solid var(--border);border-bottom:0;background:rgba(18,19,17,.97);backdrop-filter:blur(18px)}.tab-btn{flex-direction:column;gap:3px;padding:5px 8px;border:0;font-size:0}.tab-label{display:none}.screen{padding:10px 0 88px}.new-post-fab{padding:13px 14px}.chat-shell{grid-template-columns:1fr;height:calc(100dvh - 152px);min-height:440px;max-height:760px;border-right:0;border-left:0;border-radius:0}.contacts-col{height:100%;border-right:0}.chat-col{display:none}.chat-shell.show-chat .contacts-col{display:none}.chat-shell.show-chat .chat-col{display:flex}.mobile-back{display:flex}.composer-row{gap:6px;padding:9px}.composer-row .tool-btn{width:32px;height:32px}.composer-row input{padding:9px 12px;font-size:13px}.login-wrap{padding:20px 12px}.login-card{padding:24px 20px}}      `}</style>
 
       {!user ? <LoginScreen onLogin={setUser} existingHandles={existingHandles} onClaimRequest={submitOwnershipClaim} onRegisterCredentials={registerCredentials} onLoginWithPassword={verifyCredentials} t={t} /> : (
         <>
-          <div className="app-header">
+          <div className="desktop-shell">
+            <aside className="side-nav" aria-label="Navegación principal">
+              <div className="side-brand"><HeaderMark /></div>
+              <nav className="side-nav-links">
+                <button className={"side-link" + (tab === "feed" && !viewedProfile && !showSearchResults ? " active" : "")} onClick={() => { setTab("feed"); setViewedProfile(null); setViewedPostId(null); setShowSearchResults(false); }}><Home size={21}/><span>Inicio</span></button>
+                <button className={"side-link" + (showSearchResults ? " active" : "")} onClick={() => { setSearchQuery(""); setShowSearchResults(true); setViewedProfile(null); }}><Search size={21}/><span>Explorar</span></button>
+                <button className={"side-link" + (tab === "devfeed" ? " active" : "")} onClick={() => { setTab("devfeed"); setViewedProfile(null); setShowSearchResults(false); }}><Video size={21}/><span>DevFeed</span></button>
+                <button className={"side-link" + (tab === "chat" ? " active" : "")} onClick={() => { setTab("chat"); setViewedProfile(null); setShowSearchResults(false); }}><MessageCircle size={21}/><span>Mensajes</span>{unreadChatHandles.size > 0 && <span className="side-badge">{unreadChatHandles.size}</span>}</button>
+                <button className="side-link" onClick={() => setShowNotifs(true)}><Bell size={21}/><span>Notificaciones</span>{unreadCount > 0 && <span className="side-badge">{unreadCount}</span>}</button>
+                <button className={"side-link" + (tab === "perfil" || viewedProfile ? " active" : "")} onClick={() => { setTab("perfil"); setViewedProfile(null); setShowSearchResults(false); }}><UserIcon size={21}/><span>Perfil</span></button>
+                <button className={"side-link" + (tab === "ajustes" ? " active" : "")} onClick={() => { setTab("ajustes"); setViewedProfile(null); setShowSearchResults(false); }}><SlidersHorizontal size={21}/><span>Ajustes</span></button>
+                {isAdmin && <button className={"side-link" + (tab === "moderacion" ? " active" : "")} onClick={() => { setTab("moderacion"); setViewedProfile(null); setShowSearchResults(false); }}><ShieldCheck size={21}/><span>Moderación</span></button>}
+              </nav>
+              <button className="side-compose" onClick={() => { setTab("feed"); setViewedProfile(null); setShowSearchResults(false); setComposeSignal(n => n + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }}><Plus size={19}/><span>Publicar</span></button>
+              <button className="side-account" onClick={() => { setTab("perfil"); setViewedProfile(null); }}><Avatar name={user.name} url={avatarUrl}/><span><strong>{user.name}</strong><small>{user.handle}</small></span><MoreVertical size={17}/></button>
+            </aside>
+            <main className="main-column">
+              <div className="app-header">
           <div className="top-bar">
-            <HeaderMark />
-            <SearchBar query={searchQuery} setQuery={setSearchQuery} allDevs={allDevs} posts={posts}
+            <strong className="page-title">{tab === "chat" ? "Mensajes" : tab === "perfil" ? "Perfil" : tab === "ajustes" ? "Ajustes" : tab === "devfeed" ? "DevFeed" : "Inicio"}</strong>
+            <div className="mobile-search"><SearchBar query={searchQuery} setQuery={setSearchQuery} allDevs={allDevs} posts={posts}
               onSelectUser={(h) => { openProfile(h); setSearchQuery(""); setShowSearchResults(false); }}
               onSelectHashtag={(tag) => { setSearchQuery("#" + tag); setShowSearchResults(true); setViewedProfile(null); setViewedPostId(null); }}
               onSubmit={(q) => { if (q.trim()) { setSearchQuery(q); setShowSearchResults(true); setViewedProfile(null); setViewedPostId(null); } }}
-              placeholder={t("buscarPlaceholder")} t={t} />
+              placeholder={t("buscarPlaceholder")} t={t} /></div>
             <div className="right">
               <span className="conn-pill" title={storageOnline === true ? "Conectado a Supabase" : storageOnline === false ? "Sin conexión con Supabase" : "Comprobando conexión…"}>{storageOnline === true ? <Wifi size={12}/> : <WifiOff size={12}/>}</span>
               <button className="icon-only-btn" onClick={() => setShowNotifs(s => !s)}><Bell size={16}/>{unreadCount > 0 && <span className="badge-dot">{unreadCount}</span>}</button>
@@ -1876,7 +1937,7 @@ export default function DevFeelApp() {
               <OtherProfileScreen dev={viewedProfile} following={following} toggleFollow={toggleFollow} posts={posts} onBack={() => setViewedProfile(null)} onMessage={openChatWith} followsMap={followsMap} canChatWith={canChatWith} t={t} lang={lang} />
             ) : (
               <>
-                {tab === "feed" && <FeedScreen posts={posts} likePost={likePost} reportPost={reportPost} addComment={addComment} likeComment={likeComment} publishPost={publishPost} following={following} toggleFollow={toggleFollow} isDeveloper={isDeveloper} searchQuery={searchQuery} onViewProfile={openProfile} myHandle={user.handle} contacts={contactsList} onSendToChat={sendPostToChat} resolveAuthor={resolveDev} affinity={affinity} lang={lang} t={t} />}
+                {tab === "feed" && <FeedScreen posts={posts} likePost={likePost} reportPost={reportPost} addComment={addComment} likeComment={likeComment} publishPost={publishPost} following={following} toggleFollow={toggleFollow} isDeveloper={isDeveloper} searchQuery={searchQuery} onViewProfile={openProfile} myHandle={user.handle} contacts={contactsList} onSendToChat={sendPostToChat} resolveAuthor={resolveDev} affinity={affinity} lang={lang} t={t} composeSignal={composeSignal} onComposeOpened={() => setComposeSignal(0)} />}
                 {tab === "devfeed" && <DevFeedScreen posts={posts} likePost={likePost} reportPost={reportPost} addComment={addComment} likeComment={likeComment} onViewProfile={openProfile} myHandle={user.handle} resolveAuthor={resolveDev} affinity={affinity} contacts={contactsList} onSendToChat={sendPostToChat} t={t} lang={lang} />}
                 {tab === "perfil" && <ProfileScreen user={user} following={following} toggleFollow={toggleFollow} myPostsCount={myPostsCount} bio={bio} searchQuery={searchQuery} isDeveloper={isDeveloper} onViewProfile={openProfile} allDevs={allDevs} followsMap={followsMap} avatarUrl={avatarUrl} t={t} />}
                 {tab === "chat" && <ChatScreen contacts={contactsList} activeHandle={activeChatHandle} onSelectContact={(h) => { setActiveChatHandle(h); markChatRead(h); }} messages={messagesMap[activeConvKey] || []} sendMessage={sendMessage} editMessage={editMessage} deleteMessage={deleteMessage} togglePinMessage={togglePinMessage} myName={user.name} onViewProfile={openProfile} canChatWith={canChatWith} chatStateFor={chatStateFor} sendChatRequest={sendChatRequest} acceptChatRequest={acceptChatRequest} unreadHandles={unreadChatHandles} />}
@@ -1885,6 +1946,24 @@ export default function DevFeelApp() {
               </>
             )}
           </div>
+          </main>
+          <aside className="right-rail">
+            <div className="rail-search"><SearchBar query={searchQuery} setQuery={setSearchQuery} allDevs={allDevs} posts={posts}
+              onSelectUser={(h) => { openProfile(h); setSearchQuery(""); setShowSearchResults(false); }}
+              onSelectHashtag={(tag) => { setSearchQuery("#" + tag); setShowSearchResults(true); setViewedProfile(null); setViewedPostId(null); }}
+              onSubmit={(q) => { if (q.trim()) { setSearchQuery(q); setShowSearchResults(true); setViewedProfile(null); setViewedPostId(null); } }}
+              placeholder={t("buscarPlaceholder")} t={t} /></div>
+            <section className="rail-card">
+              <h3>Personas para seguir</h3>
+              {allDevs.filter(dev => dev.handle !== user.handle).slice(0, 5).map(dev => <button className="rail-person" key={dev.handle} onClick={() => openProfile(dev.handle)}>
+                <Avatar name={dev.name} url={dev.avatarUrl}/><span><strong>{dev.name}</strong><small>{dev.handle}</small></span><MoreVertical className="rail-arrow" size={15}/>
+              </button>)}
+              <button className="rail-more" onClick={() => { setSearchQuery(""); setShowSearchResults(true); }}>Ver comunidad</button>
+            </section>
+            <section className="rail-card rail-status"><span className={"status-dot" + (storageOnline ? " online" : "")}/><div><strong>{storageOnline ? "Conectado" : storageOnline === false ? "Sin conexión" : "Conectando"}</strong><small>Sincronización con Supabase</small></div></section>
+            <p className="rail-footer">DevFeel · Hecho para compartir lo que construís.</p>
+          </aside>
+        </div>
         </>
       )}
     </div>
