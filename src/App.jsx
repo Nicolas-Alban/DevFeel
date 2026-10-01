@@ -50,11 +50,9 @@ const DEMO_TEMPLATES = [
   { name: "paleta", html: "<body style='margin:0;display:flex;gap:10px;align-items:center;justify-content:center;height:100vh;background:#0E0F0C;'><div onclick=\"this.style.background='#EB5757'\" style='width:50px;height:50px;border-radius:12px;background:#6FCF97;cursor:pointer;'></div><div onclick=\"this.style.background='#56CCF2'\" style='width:50px;height:50px;border-radius:12px;background:#BB6BD9;cursor:pointer;'></div><div onclick=\"this.style.background='#E8B84B'\" style='width:50px;height:50px;border-radius:12px;background:#F5F4EE;cursor:pointer;'></div></body>" },
 ];
 
+const RETIRED_TEST_HANDLES = new Set(["@marcosile", "@luzh", "@anon_dev"]);
 const STATIC_DEVS = [
-  { name: "Marcos Ile", handle: "@marcosile", bio: "Backend & sistemas distribuidos. Rust por las noches.", followers: 3200, isDev: true, acceptsMsgs: true, isBot: true, links: {} },
-  { name: "Luz Herrera", handle: "@luzh", bio: "Diseñadora que aprendió a programar por accidente.", followers: 890, isDev: false, acceptsMsgs: true, isBot: true, links: {} },
-  { name: "Dev Anónimo", handle: "@anon_dev", bio: "Testing evangelist. No confío en código sin tests.", followers: 5400, isDev: true, acceptsMsgs: false, isBot: true, links: {} },
-  { name: "Sara Q.", handle: "@saraq", bio: "Frontend, cafeína y teclados mecánicos.", followers: 1500, isDev: true, acceptsMsgs: true, isBot: true, links: {} },
+  { name: "Sara Q.", handle: "@saraq", bio: "Frontend developer | Construyo interfaces, pruebo ideas y comparto pequeños experimentos. En aprendizaje constante ✨", followers: 1500, isDev: true, acceptsMsgs: true, isBot: true, links: {} },
 ];
 
 const INITIAL_POSTS = [
@@ -638,8 +636,9 @@ function FeedScreen({ posts, likePost, reportPost, addComment, likeComment, publ
       {!composerOpen ? (
         <button className="new-post-fab" title={t("publicarAlgo")} onClick={() => setComposerOpen(true)}><Avatar name={myHandle}/><span className="compose-placeholder">¿Qué estás construyendo?</span><span className="compose-cta"><Plus size={16}/> Publicar</span></button>
       ) : (
-        <div className="composer">
-          <div className="composer-head"><span>Nueva publicación</span><button className="icon-only-btn" onClick={resetComposer}><X size={14}/></button></div>
+        <div className="composer-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) resetComposer(); }}>
+        <div className="composer" role="dialog" aria-modal="true" aria-labelledby="composer-heading" onMouseDown={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Escape") resetComposer(); }}>
+          <div className="composer-head"><h2 id="composer-heading">Nueva publicación</h2><button className="icon-only-btn" aria-label="Cerrar editor" onClick={resetComposer}><X size={16}/></button></div>
           <input className="title-input" placeholder="Título (opcional)" value={titleDraft} onChange={e => setTitleDraft(e.target.value)} />
           <div style={{ position: "relative" }}>
             <textarea placeholder="¿Qué construiste hoy?" value={draft} onChange={e => setDraft(e.target.value)} />
@@ -700,7 +699,7 @@ function FeedScreen({ posts, likePost, reportPost, addComment, likeComment, publ
           <div className="row"><label style={{ cursor: "pointer" }}><input type="checkbox" checked={markSensitive} onChange={e => setMarkSensitive(e.target.checked)} /> Marcar como contenido sensible (+18)</label></div>
           <button className="publish-btn" onClick={publish}>Publicar</button>
           <div style={{ clear: "both" }} />
-        </div>
+        </div></div>
       )}
       <div className="subtab-row">
         <button className={"subtab" + (feedTab === "paraTi" ? " active" : "")} onClick={() => setFeedTab("paraTi")}>{t("paraTi")}</button>
@@ -1248,7 +1247,7 @@ export default function DevFeelApp() {
   const [theme, setTheme] = useState("dark");
   const [lang, setLang] = useState("es");
   const [followsMap, setFollowsMap] = useState({});
-  const [posts, setPosts] = useState(INITIAL_POSTS);
+  const [posts, setPosts] = useState(INITIAL_POSTS.filter(post => !RETIRED_TEST_HANDLES.has(post.handle)));
   const [realUsers, setRealUsers] = useState([]);
   const [verificationRequests, setVerificationRequests] = useState([]);
   const [claims, setClaims] = useState([]);
@@ -1316,7 +1315,7 @@ export default function DevFeelApp() {
   }, [user, posts]);
 
   const following = useMemo(() => new Set(followsMap[user?.handle] || []), [followsMap, user]);
-  const allDevs = useMemo(() => { const others = realUsers.filter(u => u.handle !== user?.handle); return [...STATIC_DEVS, ...others]; }, [realUsers, user]);
+  const allDevs = useMemo(() => { const others = realUsers.filter(u => u.handle !== user?.handle && !RETIRED_TEST_HANDLES.has(u.handle)); return [...STATIC_DEVS, ...others]; }, [realUsers, user]);
   const myPostsCount = posts.filter(p => p.handle === user?.handle).length;
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -1349,10 +1348,11 @@ export default function DevFeelApp() {
     const pull = async () => {
       const remotePosts = await loadShared("devfeel:posts", null);
       if (live && remotePosts) {
-        setPosts(prev => JSON.stringify(prev) === JSON.stringify(remotePosts) ? prev : remotePosts);
+        const visiblePosts = remotePosts.filter(post => !RETIRED_TEST_HANDLES.has(post.handle));
+        setPosts(prev => JSON.stringify(prev) === JSON.stringify(visiblePosts) ? prev : visiblePosts);
       }
       const remoteUsers = await loadShared("devfeel:users", []);
-      if (live) setRealUsers(prev => JSON.stringify(prev) === JSON.stringify(remoteUsers) ? prev : remoteUsers);
+      if (live) { const visibleUsers = remoteUsers.filter(u => !RETIRED_TEST_HANDLES.has(u.handle)); setRealUsers(prev => JSON.stringify(prev) === JSON.stringify(visibleUsers) ? prev : visibleUsers); }
       const remoteFollows = await loadShared("devfeel:follows", {});
       if (live) setFollowsMap(prev => JSON.stringify(prev) === JSON.stringify(remoteFollows) ? prev : remoteFollows);
       const remoteChatStatus = await loadShared("devfeel:chatstatus", {});
@@ -1398,7 +1398,7 @@ export default function DevFeelApp() {
       const entry = { name: user.name, handle: user.handle, bio, isDev: isAdmin ? true : existingIsDev, acceptsMsgs, avatarUrl, links, isBot: false };
       const updated = idx === -1 ? [...users, entry] : users.map((u, i) => i === idx ? entry : u);
       await saveShared("devfeel:users", updated);
-      setRealUsers(updated);
+      setRealUsers(updated.filter(u => !RETIRED_TEST_HANDLES.has(u.handle)));
     })();
   }, [user, acceptsMsgs, bio, avatarUrl, links, isAdmin]);
 
@@ -1618,7 +1618,7 @@ export default function DevFeelApp() {
 
   const activeConvKey = user ? convKey(user.handle, activeChatHandle) : "";
   const contactsList = useMemo(() => allDevs, [allDevs]);
-  const existingHandles = useMemo(() => [...realUsers.map(u => u.handle), ...STATIC_DEVS.map(d => d.handle)], [realUsers]);
+  const existingHandles = useMemo(() => [...realUsers.filter(u => !RETIRED_TEST_HANDLES.has(u.handle)).map(u => u.handle), ...STATIC_DEVS.map(d => d.handle)], [realUsers]);
 
   return (
     <div className={"app-root" + (theme === "light" ? " light" : "")}>
@@ -1852,44 +1852,51 @@ export default function DevFeelApp() {
         .app-root{width:100%;max-width:none;min-height:100vh;margin:0;border-radius:0;overflow:visible;background:var(--canvas);color:var(--ink)}
         .desktop-shell{display:grid;grid-template-columns:220px minmax(0,700px) 310px;gap:28px;justify-content:center;max-width:1420px;min-height:100vh;margin:0 auto;padding:0 24px}
         .side-nav{position:sticky;top:0;height:100dvh;display:flex;flex-direction:column;padding:18px 8px 14px;min-width:0}
-        .side-brand{padding:10px 16px 22px}.side-brand .header-mark{font-size:20px}.side-brand .header-mark-icon{width:34px;height:34px;border-radius:11px}
+        .side-brand-button{display:flex;width:100%;padding:10px 16px 22px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.side-brand-button:hover .header-mark{color:var(--accent)}.side-brand{padding:10px 16px 22px}.side-brand .header-mark{font-size:20px}.side-brand .header-mark-icon{width:34px;height:34px;border-radius:11px}
         .side-nav-links{display:flex;flex-direction:column;gap:5px}
         .side-link{position:relative;display:flex;align-items:center;gap:16px;width:100%;padding:13px 16px;border:0;border-radius:12px;background:transparent;color:var(--ink-muted);font:500 15px Inter,sans-serif;text-align:left;cursor:pointer}
-        .side-link:hover,.side-link.active{background:#191b1e;color:var(--ink)}.side-link.active{font-weight:700}.side-link.active:before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:4px;background:var(--accent)}
+        .side-link:hover,.side-link.active{background:var(--surface-alt);color:var(--ink)}.side-link.active{font-weight:700}.side-link.active:before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:4px;background:var(--accent)}
         .side-badge{margin-left:auto;min-width:18px;padding:2px 5px;border-radius:99px;background:#e85e68;color:#fff;font-size:10px;text-align:center}
         .side-compose{display:flex;align-items:center;justify-content:center;gap:9px;margin:18px 8px auto;padding:13px 18px;border:0;border-radius:999px;background:var(--accent);color:#17140c;font-weight:750;font-size:14px;cursor:pointer}
         .side-account{display:flex;align-items:center;gap:10px;padding:10px 8px;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--ink);text-align:left;cursor:pointer}
         .side-account>span,.rail-person>span{display:flex;flex:1;min-width:0;flex-direction:column;gap:3px}.side-account strong,.rail-person strong{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.side-account small,.rail-person small{font-size:11px;color:var(--ink-faint)}
         .main-column{min-width:0;min-height:100vh;border-left:1px solid var(--border);border-right:1px solid var(--border);background:var(--canvas)}
-        .app-header{position:sticky;top:0;z-index:22;background:rgba(14,15,12,.94);backdrop-filter:blur(18px);border-bottom:1px solid var(--border)}
+        .app-header{position:sticky;top:0;z-index:22;background:color-mix(in srgb,var(--canvas) 94%,transparent);backdrop-filter:blur(18px);border-bottom:1px solid var(--border)}
         .top-bar{min-height:58px;padding:10px 20px}.page-title{font-size:18px;letter-spacing:-.02em}.mobile-search{display:none;flex:1;min-width:0}
         .main-column .tab-bar{display:none}.screen{padding:16px 0 48px}
         .right-rail{position:sticky;top:0;align-self:start;height:100dvh;overflow-y:auto;padding:18px 2px 22px;scrollbar-width:thin}
-        .rail-search{margin-bottom:18px}.rail-search .search-box{padding:12px 16px;background:#17191c;border-color:transparent}.rail-search .search-box-wrap{margin:0}.rail-search .search-box input{font-size:14px}
-        .rail-card{margin-bottom:16px;padding:16px;border:1px solid var(--border);border-radius:18px;background:#141619}.rail-card h3{margin:0 0 14px;font-size:16px;letter-spacing:-.02em}
+        .rail-search{margin-bottom:18px}.rail-search .search-box{padding:12px 16px;background:var(--surface-alt);border-color:var(--border)}.rail-search .search-box-wrap{margin:0}.rail-search .search-box input{font-size:14px}
+        .rail-card{margin-bottom:16px;padding:16px;border:1px solid var(--border);border-radius:18px;background:var(--surface)}.rail-card h3{margin:0 0 14px;font-size:16px;letter-spacing:-.02em}
         .rail-person{display:flex;align-items:center;gap:10px;width:100%;padding:9px 0;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer}.rail-person:hover strong{color:var(--accent)}.rail-arrow{transform:rotate(0deg);color:var(--ink-faint)}
         .rail-more{width:100%;padding:12px 0 0;border:0;border-top:1px solid var(--border);background:transparent;color:var(--accent);text-align:left;font-size:13px;cursor:pointer}
         .rail-status{display:flex;align-items:center;gap:10px}.rail-status>div{display:flex;flex-direction:column;gap:4px}.rail-status strong{font-size:13px}.rail-status small,.rail-footer{font-size:11px;color:var(--ink-faint)}
         .status-dot{width:9px;height:9px;flex:none;border-radius:50%;background:#e85e68}.status-dot.online{background:#45c987;box-shadow:0 0 0 4px rgba(69,201,135,.12)}.rail-footer{padding:4px 8px;line-height:1.7}
         .login-wrap{min-height:100dvh;align-items:center}.login-back{display:flex;align-items:center;gap:7px;margin:0 auto 14px;padding:8px 12px;border:0;border-radius:999px;background:var(--surface-alt);color:var(--ink-muted);cursor:pointer}
-        .new-post-fab{justify-content:flex-start;gap:12px;margin:0;padding:15px 18px;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;color:var(--ink-muted)}.new-post-fab:hover{background:rgba(255,255,255,.025)}.compose-placeholder{flex:1;text-align:left;font-size:16px}.compose-cta{display:flex;align-items:center;gap:6px;padding:9px 16px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700}.new-post-fab>.avatar{width:42px;height:42px}
+        .new-post-fab{justify-content:flex-start;gap:12px;margin:0;padding:15px 18px;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;color:var(--ink-muted)}.new-post-fab:hover{background:color-mix(in srgb,var(--ink) 3%,transparent)}.compose-placeholder{flex:1;text-align:left;font-size:16px}.compose-cta{display:flex;align-items:center;gap:6px;padding:9px 16px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700}.new-post-fab>.avatar{width:42px;height:42px}
         .composer{margin:0;padding:16px 18px;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent}.composer-head{font-size:14px}.composer textarea{min-height:82px;border:0;background:transparent;font-size:17px}.composer .type-row{margin-top:10px}
-        .card{margin:0;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;transition:background .15s}.card:hover{background:rgba(255,255,255,.018)}.card-head{padding:16px 18px 8px}.card-body{padding:0 18px 12px}.card-footer{padding:10px 24px;border-top:0;justify-content:space-between;max-width:420px}.card-footer .report{margin-left:0}
-        .back-btn{padding:9px 12px;border-radius:999px;background:var(--surface-alt)}.back-btn:hover,.login-back:hover{color:var(--ink);background:#292c30}
+        .card{margin:0;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;transition:background .15s}.card:hover{background:color-mix(in srgb,var(--ink) 2%,transparent)}.card-head{padding:16px 18px 8px}.card-body{padding:0 18px 12px}.card-footer{padding:10px 24px;border-top:0;justify-content:space-between;max-width:420px}.card-footer .report{margin-left:0}
+        .back-btn{padding:9px 12px;border-radius:999px;background:var(--surface-alt)}.back-btn:hover,.login-back:hover{color:var(--ink);background:var(--surface-alt)}
         .chat-shell{display:grid;grid-template-columns:240px minmax(0,1fr);height:min(760px,calc(100dvh - 150px));min-height:500px;margin:0;overflow:hidden;border:1px solid var(--border);border-radius:16px;background:var(--canvas)}
-        .contacts-col{min-height:0;overflow-y:auto;border-right:1px solid var(--border);background:#101215}.contacts-col h4{position:sticky;top:0;z-index:3;margin:0;background:rgba(16,18,21,.96);backdrop-filter:blur(14px);font-size:14px;color:var(--ink);text-transform:none;letter-spacing:0;padding:18px 16px 12px}
-        .contact-item{gap:11px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.035)}.contact-item.active,.contact-item:hover{background:#1c2024}.contact-item>div{min-width:0}.contact-name,.contact-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .chat-col{height:100%;min-height:0;overflow:hidden;background:var(--canvas)}.chat-head{position:relative;z-index:4;flex:0 0 auto;min-height:68px;background:rgba(14,15,12,.96);backdrop-filter:blur(14px);box-shadow:0 1px 0 var(--border)}
+        .contacts-col{min-height:0;overflow-y:auto;border-right:1px solid var(--border);background:var(--surface)}.contacts-col h4{position:sticky;top:0;z-index:3;margin:0;background:color-mix(in srgb,var(--surface) 96%,transparent);backdrop-filter:blur(14px);font-size:14px;color:var(--ink);text-transform:none;letter-spacing:0;padding:18px 16px 12px}
+        .contact-item{gap:11px;padding:11px 14px;border-bottom:1px solid var(--border)}.contact-item.active,.contact-item:hover{background:var(--surface-alt)}.contact-item>div{min-width:0}.contact-name,.contact-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .chat-col{height:100%;min-height:0;overflow:hidden;background:var(--canvas)}.chat-head{position:relative;z-index:4;flex:0 0 auto;min-height:68px;background:color-mix(in srgb,var(--canvas) 96%,transparent);backdrop-filter:blur(14px);box-shadow:0 1px 0 var(--border)}
         .messages{flex:1 1 auto;min-height:0;overscroll-behavior:contain;overflow-y:auto;scroll-behavior:smooth;overflow-anchor:auto}.bubble{max-width:min(78%,520px);overflow-wrap:anywhere}.composer-row{flex:0 0 auto;background:var(--canvas)}
         .pinned-banner,.attachments-panel,.request-banner,.reply-bar,.blocked-banner,.request-compose{flex:0 0 auto}
         @media(max-width:1380px){.mobile-search{display:flex}.desktop-shell{grid-template-columns:76px minmax(0,840px);gap:18px;max-width:1000px;padding:0 14px}.side-nav{padding-inline:2px}.side-brand{padding:12px 10px 20px}.side-brand .header-mark-text,.side-link span:not(.side-badge),.side-compose span,.side-account>span,.side-account>svg{display:none}.side-link{justify-content:center;padding:14px 10px}.side-link.active:before{left:-2px}.side-compose{width:48px;height:48px;margin:18px auto auto;padding:0}.side-account{justify-content:center;padding:7px}.right-rail{display:none}}
-        @media(max-width:760px){.desktop-shell{display:block;padding:0;max-width:none}.side-nav,.right-rail{display:none}.main-column{width:100%;min-height:100dvh;border:0}.app-header{position:sticky}.top-bar{gap:9px;padding:9px 12px}.page-title{font-size:17px}.mobile-search{display:block}.main-column .tab-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;justify-content:space-around;gap:0;padding:7px 4px calc(7px + env(safe-area-inset-bottom));border-top:1px solid var(--border);border-bottom:0;background:rgba(18,19,17,.97);backdrop-filter:blur(18px)}.tab-btn{flex-direction:column;gap:3px;padding:5px 8px;border:0;font-size:0}.tab-label{display:none}.screen{padding:10px 0 88px}.new-post-fab{padding:13px 14px}.chat-shell{grid-template-columns:1fr;height:calc(100dvh - 152px);min-height:440px;max-height:760px;border-right:0;border-left:0;border-radius:0}.contacts-col{height:100%;border-right:0}.chat-col{display:none}.chat-shell.show-chat .contacts-col{display:none}.chat-shell.show-chat .chat-col{display:flex}.mobile-back{display:flex}.composer-row{gap:6px;padding:9px}.composer-row .tool-btn{width:32px;height:32px}.composer-row input{padding:9px 12px;font-size:13px}.login-wrap{padding:20px 12px}.login-card{padding:24px 20px}}      `}</style>
+        .composer-backdrop{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.58);backdrop-filter:blur(5px)}
+        .composer{width:min(700px,100%);max-height:min(88dvh,900px);overflow-y:auto;margin:0;padding:0 22px 22px;border:1px solid var(--border);border-radius:22px;background:var(--surface);color:var(--ink);box-shadow:0 24px 80px rgba(0,0,0,.32);scrollbar-gutter:stable}
+        .composer-head{position:sticky;top:0;z-index:4;display:flex;align-items:center;justify-content:space-between;min-height:62px;margin:0 -22px 16px;padding:12px 22px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--surface) 95%,transparent);backdrop-filter:blur(12px)}
+        .composer-head h2{margin:0;color:var(--ink);font-size:18px;line-height:1.25}.composer .title-input,.composer .url-input{width:100%;min-width:0;min-height:44px;padding:10px 13px;border:1px solid var(--border);border-radius:12px;outline:none;background:var(--surface-alt);color:var(--ink);font:inherit}.composer .title-input{margin:0 0 12px;font-weight:600}.composer .title-input:focus,.composer .url-input:focus,.composer textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+        .composer textarea{width:100%;min-height:120px;padding:13px;border:1px solid var(--border);border-radius:14px;background:var(--surface-alt);color:var(--ink);font:inherit;line-height:1.55;resize:vertical}.composer .row,.composer .type-row,.composer .upload-row{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:14px 0}.composer .row>label{color:var(--ink-muted)}.composer input[type=range]{accent-color:var(--accent)}.composer input[type=checkbox]{accent-color:var(--accent)}.composer .preview-box{border:1px solid var(--border);border-radius:15px;background:var(--surface-alt);color:var(--ink)}.composer .icon-only-btn{width:36px;height:36px;border:1px solid var(--border);border-radius:50%;background:var(--surface-alt);color:var(--ink)}.side-brand-button{border-radius:14px}.side-brand-button:focus-visible,.side-link:focus-visible,.tab-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+        @media(max-width:1380px){.side-brand-button{justify-content:center;padding:12px 4px 20px}.side-brand-button .header-mark-text{display:none}}
+        @media(max-width:760px){.composer-backdrop{align-items:flex-end;padding:0;background:rgba(0,0,0,.52)}.composer{width:100%;max-height:94dvh;padding:0 16px calc(18px + env(safe-area-inset-bottom));border-radius:22px 22px 0 0;border-bottom:0}.composer-head{margin:0 -16px 14px;padding:10px 16px;min-height:58px}.composer-head h2{font-size:17px}.composer textarea{min-height:105px}.composer .row>label{width:100%}.composer .upload-row{align-items:stretch}.composer .upload-row .url-input{flex:1 1 100%;max-width:none!important}.composer .upload-preview{max-width:100%;height:auto}.side-brand-button{display:none}.main-column .tab-bar{background:color-mix(in srgb,var(--canvas) 97%,transparent)}}
+        @media(max-width:760px){.desktop-shell{display:block;padding:0;max-width:none}.side-nav,.right-rail{display:none}.main-column{width:100%;min-height:100dvh;border:0}.app-header{position:sticky}.top-bar{gap:9px;padding:9px 12px}.page-title{font-size:17px}.mobile-search{display:block}.main-column .tab-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;justify-content:space-around;gap:0;padding:7px 4px calc(7px + env(safe-area-inset-bottom));border-top:1px solid var(--border);border-bottom:0;background:color-mix(in srgb,var(--canvas) 97%,transparent);backdrop-filter:blur(18px)}.tab-btn{flex-direction:column;gap:3px;padding:5px 8px;border:0;font-size:0}.tab-label{display:none}.screen{padding:10px 0 88px}.new-post-fab{padding:13px 14px}.chat-shell{grid-template-columns:1fr;height:calc(100dvh - 152px);min-height:440px;max-height:760px;border-right:0;border-left:0;border-radius:0}.contacts-col{height:100%;border-right:0}.chat-col{display:none}.chat-shell.show-chat .contacts-col{display:none}.chat-shell.show-chat .chat-col{display:flex}.mobile-back{display:flex}.composer-row{gap:6px;padding:9px}.composer-row .tool-btn{width:32px;height:32px}.composer-row input{padding:9px 12px;font-size:13px}.login-wrap{padding:20px 12px}.login-card{padding:24px 20px}}      `}</style>
 
       {!user ? <LoginScreen onLogin={setUser} existingHandles={existingHandles} onClaimRequest={submitOwnershipClaim} onRegisterCredentials={registerCredentials} onLoginWithPassword={verifyCredentials} t={t} /> : (
         <>
           <div className="desktop-shell">
             <aside className="side-nav" aria-label="Navegación principal">
-              <div className="side-brand"><HeaderMark /></div>
+              <button className="side-brand-button" aria-label="DevFeel, ir al inicio" onClick={() => { setTab("feed"); setViewedProfile(null); setViewedPostId(null); setShowSearchResults(false); setSearchQuery(""); window.history.pushState({}, "", "/"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><HeaderMark /></button>
               <nav className="side-nav-links">
                 <button className={"side-link" + (tab === "feed" && !viewedProfile && !showSearchResults ? " active" : "")} onClick={() => { setTab("feed"); setViewedProfile(null); setViewedPostId(null); setShowSearchResults(false); }}><Home size={21}/><span>Inicio</span></button>
                 <button className={"side-link" + (showSearchResults ? " active" : "")} onClick={() => { setSearchQuery(""); setShowSearchResults(true); setViewedProfile(null); }}><Search size={21}/><span>Explorar</span></button>
