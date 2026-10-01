@@ -1,11 +1,12 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Mail, UserPlus, UserCheck, Code2, Image as ImageIcon,
   Link2, LogOut, CheckCircle2, MessageCircle, Bell, Home,
   User as UserIcon, Heart, Share2, Flag, Type, Palette, Lock, Eye,
   Send, Mic, Terminal, MoreVertical, Square, Search, PlayCircle,
-  Copy, Check, X, SlidersHorizontal, Plus, Upload, ArrowLeft,
+  Copy, Check, X, SlidersHorizontal, Plus, Minus, Upload, ArrowLeft,
   Bold, Italic, Wifi, WifiOff, Smile, Paperclip, Info, Reply,
   Camera, ExternalLink, ShieldCheck, Video, Globe, Pin
 } from "lucide-react";
@@ -50,11 +51,10 @@ const DEMO_TEMPLATES = [
   { name: "paleta", html: "<body style='margin:0;display:flex;gap:10px;align-items:center;justify-content:center;height:100vh;background:#0E0F0C;'><div onclick=\"this.style.background='#EB5757'\" style='width:50px;height:50px;border-radius:12px;background:#6FCF97;cursor:pointer;'></div><div onclick=\"this.style.background='#56CCF2'\" style='width:50px;height:50px;border-radius:12px;background:#BB6BD9;cursor:pointer;'></div><div onclick=\"this.style.background='#E8B84B'\" style='width:50px;height:50px;border-radius:12px;background:#F5F4EE;cursor:pointer;'></div></body>" },
 ];
 
+const RETIRED_TEST_HANDLES = new Set(["@marcosile", "@luzh", "@anon_dev"]);
+const isRetiredTestUser = (u) => RETIRED_TEST_HANDLES.has(u?.handle) || (!!u?.isBot && u.handle !== "@saraq");
 const STATIC_DEVS = [
-  { name: "Marcos Ile", handle: "@marcosile", bio: "Backend & sistemas distribuidos. Rust por las noches.", followers: 3200, isDev: true, acceptsMsgs: true, isBot: true, links: {} },
-  { name: "Luz Herrera", handle: "@luzh", bio: "Diseñadora que aprendió a programar por accidente.", followers: 890, isDev: false, acceptsMsgs: true, isBot: true, links: {} },
-  { name: "Dev Anónimo", handle: "@anon_dev", bio: "Testing evangelist. No confío en código sin tests.", followers: 5400, isDev: true, acceptsMsgs: false, isBot: true, links: {} },
-  { name: "Sara Q.", handle: "@saraq", bio: "Frontend, cafeína y teclados mecánicos.", followers: 1500, isDev: true, acceptsMsgs: true, isBot: true, links: {} },
+  { name: "Sara Q.", handle: "@saraq", bio: "Frontend developer | Construyo interfaces, pruebo ideas y comparto pequeños experimentos. En aprendizaje constante ✨", followers: 1500, isDev: true, acceptsMsgs: true, isBot: true, links: {} },
 ];
 
 const INITIAL_POSTS = [
@@ -98,7 +98,7 @@ async function saveShared(key, value) {
   try { await window.storage.set(key, JSON.stringify(value), true); } catch (e) {}
 }
 function convKey(a, b) { return [a, b].sort().join("::"); }
-function initials(name) { return (name || "?").split(" ").map(w => w[0]).join("").slice(0, 2); }
+function initials(name) { return (name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toLocaleUpperCase(); }
 function isValidEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 function sanitizeHandle(v) { return (v || "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 9); }
 function validateHandleLength(h) { const len = h.replace("@", "").length; return len >= 5 && len <= 9; }
@@ -175,6 +175,24 @@ function Avatar({ name, url, size = "md" }) {
   const cls = "avatar" + (size === "big" ? " big" : size === "tiny" ? " tiny" : "");
   if (url) return <img src={url} alt="" className={cls} style={{ objectFit: "cover" }} />;
   return <div className={cls}>{initials(name)}</div>;
+}
+
+function ImageLightbox({ src, onClose }) {
+  const [zoom, setZoom] = useState(1);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { const closeOnEscape = e => e.key === "Escape" && onClose(); window.addEventListener("keydown", closeOnEscape); return () => window.removeEventListener("keydown", closeOnEscape); }, [onClose]);
+  const zoomBy = amount => setZoom(value => Math.max(1, Math.min(3, +(value + amount).toFixed(2))));
+  return createPortal(<div className="image-viewer" role="dialog" aria-modal="true" aria-label="Imagen ampliada" onClick={onClose}>
+    <button className="image-viewer-close" aria-label="Cerrar imagen" onClick={onClose}><X size={21}/></button>
+    <div className="image-viewer-stage" onClick={e => e.stopPropagation()} onWheel={e => { e.preventDefault(); zoomBy(e.deltaY < 0 ? .2 : -.2); }}>
+      {failed ? <span className="image-viewer-status">No se pudo cargar esta imagen.</span> : <img src={src} alt="Imagen ampliada" onError={() => setFailed(true)} onDoubleClick={e => { e.stopPropagation(); setZoom(v => v > 1 ? 1 : 2); }} style={{ width: zoom === 1 ? "auto" : `${Math.round(88 * zoom)}vw`, maxWidth: zoom === 1 ? "90vw" : "none", maxHeight: zoom === 1 ? "82dvh" : "none" }} />}
+    </div>
+    <div className="image-viewer-controls" onClick={e => e.stopPropagation()}><button aria-label="Alejar" onClick={() => zoomBy(-.25)}><Minus size={18}/></button><button className="zoom-reset" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button><button aria-label="Acercar" onClick={() => zoomBy(.25)}><Plus size={18}/></button></div>
+  </div>, document.body);
+}
+function EnlargeableImage({ src, alt = "Imagen", buttonClass = "post-image-button", imageClass = "post-media" }) {
+  const [open, setOpen] = useState(false);
+  return <><button type="button" className={buttonClass} aria-label="Abrir imagen en grande" onClick={() => setOpen(true)}><img src={src} alt={alt} className={imageClass}/></button>{open && <ImageLightbox src={src} onClose={() => setOpen(false)}/>}</>;
 }
 
 function EmojiPicker({ onPick }) {
@@ -432,9 +450,11 @@ function ShareMenu({ post, contacts, onSendToChat }) {
   const openMenu = () => {
     const rect = btnRef.current?.getBoundingClientRect();
     if (rect) {
-      const popW = 230;
-      const left = Math.min(rect.left, window.innerWidth - popW - 12);
-      setPos({ top: rect.bottom + 6, left: Math.max(12, left) });
+      const popW = Math.min(250, window.innerWidth - 24);
+      const popH = Math.min(320, window.innerHeight - 24);
+      const below = rect.bottom + 6;
+      const top = below + popH > window.innerHeight - 12 ? Math.max(12, rect.top - popH - 6) : below;
+      setPos({ top, left: Math.max(12, Math.min(rect.left, window.innerWidth - popW - 12)) });
     }
     setPicking(false);
     setSentTo(null);
@@ -458,12 +478,12 @@ function ShareMenu({ post, contacts, onSendToChat }) {
         <>
           <div className="overlay-catcher" onClick={closeAll} />
           {!picking ? (
-            <div className="comments-list floating" style={{ top: pos.top, left: pos.left }}>
+            <div className="comments-list floating" style={{ top: pos.top, left: pos.left, width: "min(250px, calc(100vw - 24px))", maxHeight: "calc(100dvh - 24px)", overflowY: "auto" }}>
               <button className="pill-btn-outline" style={{ width: "100%", marginBottom: 8 }} onClick={externalShare}><ExternalLink size={13} style={{ marginRight: 6 }}/>Compartir enlace</button>
               <button className="pill-btn-outline" style={{ width: "100%" }} onClick={() => setPicking(true)}><MessageCircle size={13} style={{ marginRight: 6 }}/>Enviar a un chat</button>
             </div>
           ) : (
-            <div className="comments-list floating" style={{ top: pos.top, left: pos.left }}>
+            <div className="comments-list floating" style={{ top: pos.top, left: pos.left, width: "min(250px, calc(100vw - 24px))", maxHeight: "calc(100dvh - 24px)", overflowY: "auto" }}>
               <div className="notif-head"><span>Enviar a...</span><button onClick={closeAll}><X size={14}/></button></div>
               {contacts.map(c => (
                 <div key={c.handle} className="contact-pick-row" onClick={() => pickContact(c)}>
@@ -522,7 +542,7 @@ function PostCard({ post, following, onToggleFollow, onLike, onReport, onAddComm
           {post.title && <h3 className="post-title">{post.title}</h3>}
           {post.content && <TextStyled text={post.content} fontSize={post.fontSize} textStyle={post.textStyle} bold={post.bold} italic={post.italic} />}
           {post.codeContent && <CodeBlock content={post.codeContent} lang={post.codeLang} textStyle={post.textStyle} bold={post.bold} italic={post.italic} />}
-          {post.imageUrl && <img src={post.imageUrl} alt="" className="post-media" />}
+          {post.imageUrl && <EnlargeableImage src={post.imageUrl} alt="Imagen de la publicación" />}
           {post.videoUrl && <video src={post.videoUrl} controls className="post-media" />}
           {post.linkUrl && <a href={post.linkUrl} target="_blank" rel="noreferrer" className="link-card"><Link2 size={14} /><span>{post.linkUrl}</span></a>}
           {post.demo && (
@@ -638,8 +658,9 @@ function FeedScreen({ posts, likePost, reportPost, addComment, likeComment, publ
       {!composerOpen ? (
         <button className="new-post-fab" title={t("publicarAlgo")} onClick={() => setComposerOpen(true)}><Avatar name={myHandle}/><span className="compose-placeholder">¿Qué estás construyendo?</span><span className="compose-cta"><Plus size={16}/> Publicar</span></button>
       ) : (
-        <div className="composer">
-          <div className="composer-head"><span>Nueva publicación</span><button className="icon-only-btn" onClick={resetComposer}><X size={14}/></button></div>
+        <div className="composer-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) resetComposer(); }}>
+        <div className="composer" role="dialog" aria-modal="true" aria-labelledby="composer-heading" onMouseDown={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Escape") resetComposer(); }}>
+          <div className="composer-head"><h2 id="composer-heading">Nueva publicación</h2><button className="icon-only-btn" aria-label="Cerrar editor" onClick={resetComposer}><X size={16}/></button></div>
           <input className="title-input" placeholder="Título (opcional)" value={titleDraft} onChange={e => setTitleDraft(e.target.value)} />
           <div style={{ position: "relative" }}>
             <textarea placeholder="¿Qué construiste hoy?" value={draft} onChange={e => setDraft(e.target.value)} />
@@ -700,7 +721,7 @@ function FeedScreen({ posts, likePost, reportPost, addComment, likeComment, publ
           <div className="row"><label style={{ cursor: "pointer" }}><input type="checkbox" checked={markSensitive} onChange={e => setMarkSensitive(e.target.checked)} /> Marcar como contenido sensible (+18)</label></div>
           <button className="publish-btn" onClick={publish}>Publicar</button>
           <div style={{ clear: "both" }} />
-        </div>
+        </div></div>
       )}
       <div className="subtab-row">
         <button className={"subtab" + (feedTab === "paraTi" ? " active" : "")} onClick={() => setFeedTab("paraTi")}>{t("paraTi")}</button>
@@ -839,7 +860,7 @@ function OtherProfileScreen({ dev, following, toggleFollow, posts, onBack, onMes
           {p.title && <h3 className="post-title">{p.title}</h3>}
           {p.content && <TextStyled text={p.content} fontSize={p.fontSize} textStyle={p.textStyle} bold={p.bold} italic={p.italic} />}
           {p.codeContent && <CodeBlock content={p.codeContent} lang={p.codeLang} textStyle={p.textStyle} bold={p.bold} italic={p.italic} />}
-          {p.imageUrl && <img src={p.imageUrl} alt="" className="post-media" />}
+          {p.imageUrl && <EnlargeableImage src={p.imageUrl} alt="Imagen de la publicación" />}
           {p.videoUrl && <video src={p.videoUrl} controls className="post-media" />}
           {p.linkUrl && <a href={p.linkUrl} target="_blank" rel="noreferrer" className="link-card"><Link2 size={14} /><span>{p.linkUrl}</span></a>}
         </div></div>
@@ -1010,7 +1031,7 @@ function SettingsScreen({ isDeveloper, hasPendingVerification, onRequestVerifica
 }
 
 /* ---------- CHAT ---------- */
-function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onTogglePin }) {
+function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onTogglePin, highlighted }) {
   const mine = msg.from === myName;
   const [menuOpen, setMenuOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -1035,13 +1056,13 @@ function MessageBubble({ msg, index, myName, onReply, onEdit, onDelete, onToggle
   }
 
   return (
-    <div className={"msg-row" + (mine ? " mine" : "")}>
+    <div className={"msg-row" + (mine ? " mine" : "") + (highlighted ? " message-highlight" : "")} data-message-index={index}>
       {msg.pinned && <div className="pin-flag"><Pin size={10}/> Fijado</div>}
-      <div className={"bubble" + (mine ? " mine" : "")} onDoubleClick={() => onReply(msg)} onTouchStart={handleTouchStart} onTouchEnd={cancelTouch} onTouchMove={cancelTouch}>
+      <div className={"bubble" + (mine ? " mine" : "") + (msg.type === "audio" ? " audio-bubble" : "")} onDoubleClick={() => onReply(msg)} onTouchStart={handleTouchStart} onTouchEnd={cancelTouch} onTouchMove={cancelTouch}>
         {msg.replyTo && <div className="reply-quote">{msg.replyTo}</div>}
         {msg.type === "text" && <span>{msg.content}{msg.edited && <span className="edited-tag"> (editado)</span>}</span>}
         {msg.type === "sticker" && <span style={{ fontSize: 34 }}>{msg.content}</span>}
-        {msg.type === "image" && <img src={msg.url} alt="" className="chat-img" />}
+        {msg.type === "image" && <EnlargeableImage src={msg.url} alt="Foto enviada en el chat" buttonClass="chat-image-button" imageClass="chat-img" />}
         {msg.type === "code" && <div className="chat-terminal"><div className="chat-terminal-bar"><span/><span/><span/></div><pre>{msg.content}</pre></div>}
         {msg.type === "audio" && <audio controls src={msg.url} className="audio-player" />}
         {msg.type === "link" && <a href={msg.url} target="_blank" rel="noreferrer" className="chat-link"><Link2 size={13} /> {msg.url}</a>}
@@ -1101,12 +1122,16 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
   const [replyTo, setReplyTo] = useState(null);
   const [editingIndex, setEditingIndex] = useState(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(null);
+  const highlightTimer = useRef(null);
   const fileInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const active = contacts.find(c => c.handle === activeHandle) || contacts[0];
   const state = active ? chatStateFor(active) : "none";
   const canMessage = state === "direct" || state === "accepted";
-  const pinnedMsg = messages.find(m => m.pinned && !m.deleted);
+  const pinnedIndex = messages.findIndex(m => m.pinned && !m.deleted);
+  const pinnedMsg = pinnedIndex >= 0 ? messages[pinnedIndex] : null;
+  const jumpToPinned = () => { const target = messagesContainerRef.current?.querySelector(`[data-message-index="${pinnedIndex}"]`); target?.scrollIntoView({ behavior: "smooth", block: "center" }); setHighlightIndex(pinnedIndex); clearTimeout(highlightTimer.current); highlightTimer.current = setTimeout(() => setHighlightIndex(null), 1800); };
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -1114,11 +1139,7 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
   }, [messages, activeHandle]);
 
   const sortedContacts = useMemo(() => {
-    return [...contacts].sort((a, b) => {
-      const aUn = unreadHandles?.has(a.handle) ? 1 : 0;
-      const bUn = unreadHandles?.has(b.handle) ? 1 : 0;
-      return bUn - aUn;
-    });
+    return [...contacts].sort((a, b) => Number(b.lastActivityAt || 0) - Number(a.lastActivityAt || 0) || ((unreadHandles?.has(b.handle) ? 1 : 0) - (unreadHandles?.has(a.handle) ? 1 : 0)));
   }, [contacts, unreadHandles]);
 
   const doSend = (msgPart) => {
@@ -1143,6 +1164,8 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
   const attachments = messages.filter(m => (m.type === "image" || m.type === "link") && !m.deleted);
   const statusLabel = (c) => { const s = chatStateFor(c); return s === "direct" || s === "accepted" ? "podés escribirle" : s === "pending-sent" ? "solicitud enviada" : s === "pending-received" ? "quiere chatear con vos" : "seguíanse para chatear"; };
 
+  if (!active) return <div className="chat-empty-state"><MessageCircle size={30}/><h3>Tus chats aparecerán aquí</h3><p>Cuando inicies una conversación o recibas un mensaje, quedará guardado y ordenado por actividad reciente.</p></div>;
+
   return (
     <div className={"chat-shell" + (mobileShowChat ? " show-chat" : "")}>
       <div className="contacts-col">
@@ -1165,12 +1188,12 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
             <button className="tool-btn" title="Archivos compartidos" onClick={() => setShowInfo(s => !s)}><Info size={15}/></button>
           </div>
         )}
-        {pinnedMsg && <div className="pinned-banner"><Pin size={12}/> {pinnedMsg.content || (pinnedMsg.type === "image" ? "Imagen fijada" : "Mensaje fijado")}</div>}
+        {pinnedMsg && <button className="pinned-banner" title="Ir al mensaje fijado" onClick={jumpToPinned}><Pin size={12}/><span>{pinnedMsg.content || (pinnedMsg.type === "image" ? "Imagen fijada" : pinnedMsg.type === "audio" ? "Audio fijado" : "Mensaje fijado")}</span><ArrowLeft size={13} className="pinned-jump-icon"/></button>}
         {showInfo && (
           <div className="attachments-panel">
             <div className="notif-head"><span>Archivos compartidos</span><button onClick={() => setShowInfo(false)}><X size={14}/></button></div>
             {attachments.length === 0 && <p className="no-comments">Todavía no hay imágenes ni links en esta conversación.</p>}
-            {attachments.map((a, i) => a.type === "image" ? <img key={i} src={a.url} alt="" className="attach-thumb" /> : <a key={i} href={a.url} target="_blank" rel="noreferrer" className="chat-link" style={{ display: "block", marginBottom: 6 }}>{a.url}</a>)}
+            {attachments.map((a, i) => a.type === "image" ? <EnlargeableImage key={i} src={a.url} alt="Imagen compartida" buttonClass="attach-thumb-button" imageClass="attach-thumb" /> : <a key={i} href={a.url} target="_blank" rel="noreferrer" className="chat-link" style={{ display: "block", marginBottom: 6 }}>{a.url}</a>)}
           </div>
         )}
 
@@ -1183,7 +1206,7 @@ function ChatScreen({ contacts, activeHandle, onSelectContact, messages, sendMes
 
         <div className="messages" ref={messagesContainerRef}>
           {messages.length === 0 && state !== "none" && <p className="no-comments" style={{ textAlign: "center", marginTop: 20 }}>Todavía no hay mensajes. Decí hola 👋</p>}
-          {messages.map((m, i) => <MessageBubble key={i} msg={m} index={i} myName={myName} onReply={setReplyTo} onEdit={startEdit} onDelete={(idx) => deleteMessage(active.handle, idx)} onTogglePin={(idx) => togglePinMessage(active.handle, idx)} />)}
+          {messages.map((m, i) => <MessageBubble key={m.id || i} msg={m} index={i} myName={myName} onReply={setReplyTo} onEdit={startEdit} onDelete={(idx) => deleteMessage(active.handle, idx)} onTogglePin={(idx) => togglePinMessage(active.handle, idx)} highlighted={highlightIndex === i} />)}
         </div>
 
         {state === "direct" || state === "accepted" ? (
@@ -1248,7 +1271,7 @@ export default function DevFeelApp() {
   const [theme, setTheme] = useState("dark");
   const [lang, setLang] = useState("es");
   const [followsMap, setFollowsMap] = useState({});
-  const [posts, setPosts] = useState(INITIAL_POSTS);
+  const [posts, setPosts] = useState(INITIAL_POSTS.filter(post => !RETIRED_TEST_HANDLES.has(post.handle)));
   const [realUsers, setRealUsers] = useState([]);
   const [verificationRequests, setVerificationRequests] = useState([]);
   const [claims, setClaims] = useState([]);
@@ -1258,9 +1281,10 @@ export default function DevFeelApp() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [viewedProfile, setViewedProfile] = useState(null);
   const [activeChatHandle, setActiveChatHandle] = useState(() => {
-    try { return localStorage.getItem("devfeel_active_chat") || "@marcosile"; } catch (e) { return "@marcosile"; }
+    try { return localStorage.getItem("devfeel_active_chat") || ""; } catch (e) { return ""; }
   });
   const [messagesMap, setMessagesMap] = useState({});
+  const [conversationIndex, setConversationIndex] = useState([]);
   const [storageOnline, setStorageOnline] = useState(null);
   const messageQueuesRef = useRef({});
   const [chatStatuses, setChatStatuses] = useState({});
@@ -1316,7 +1340,7 @@ export default function DevFeelApp() {
   }, [user, posts]);
 
   const following = useMemo(() => new Set(followsMap[user?.handle] || []), [followsMap, user]);
-  const allDevs = useMemo(() => { const others = realUsers.filter(u => u.handle !== user?.handle); return [...STATIC_DEVS, ...others]; }, [realUsers, user]);
+  const allDevs = useMemo(() => { const others = realUsers.filter(u => u.handle !== user?.handle && !isRetiredTestUser(u)); return [...STATIC_DEVS, ...others]; }, [realUsers, user]);
   const myPostsCount = posts.filter(p => p.handle === user?.handle).length;
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -1349,10 +1373,16 @@ export default function DevFeelApp() {
     const pull = async () => {
       const remotePosts = await loadShared("devfeel:posts", null);
       if (live && remotePosts) {
-        setPosts(prev => JSON.stringify(prev) === JSON.stringify(remotePosts) ? prev : remotePosts);
+        const visiblePosts = remotePosts.filter(post => !RETIRED_TEST_HANDLES.has(post.handle));
+        setPosts(prev => JSON.stringify(prev) === JSON.stringify(visiblePosts) ? prev : visiblePosts);
       }
       const remoteUsers = await loadShared("devfeel:users", []);
-      if (live) setRealUsers(prev => JSON.stringify(prev) === JSON.stringify(remoteUsers) ? prev : remoteUsers);
+      if (live) {
+        const retiredHandles = new Set([...RETIRED_TEST_HANDLES, ...remoteUsers.filter(isRetiredTestUser).map(u => u.handle)]);
+        const visibleUsers = remoteUsers.filter(u => !isRetiredTestUser(u));
+        setRealUsers(prev => JSON.stringify(prev) === JSON.stringify(visibleUsers) ? prev : visibleUsers);
+        setPosts(prev => prev.filter(post => !retiredHandles.has(post.handle)));
+      }
       const remoteFollows = await loadShared("devfeel:follows", {});
       if (live) setFollowsMap(prev => JSON.stringify(prev) === JSON.stringify(remoteFollows) ? prev : remoteFollows);
       const remoteChatStatus = await loadShared("devfeel:chatstatus", {});
@@ -1371,18 +1401,24 @@ export default function DevFeelApp() {
     if (!user) return;
     let live = true;
     const pull = async () => {
-      const key = convKey(user.handle, activeChatHandle);
-      const remoteMsgs = await loadShared("devfeel:messages:" + key, []);
-      if (live) setMessagesMap(prev => {
-        const existing = prev[key] || [];
-        if (remoteMsgs.length < existing.length) return prev;
-        if (JSON.stringify(existing) === JSON.stringify(remoteMsgs)) return prev;
-        return { ...prev, [key]: remoteMsgs };
-      });
-      const remoteNotifs = await loadShared("devfeel:notifications:" + user.handle, []);
+      if (activeChatHandle) {
+        const key = convKey(user.handle, activeChatHandle);
+        const remoteMsgs = await loadShared("devfeel:messages:" + key, []);
+        if (live) setMessagesMap(prev => {
+          const existing = prev[key] || [];
+          if (remoteMsgs.length < existing.length) return prev;
+          if (JSON.stringify(existing) === JSON.stringify(remoteMsgs)) return prev;
+          return { ...prev, [key]: remoteMsgs };
+        });
+      }
+      const [remoteNotifs, remoteAffinity, remoteIndex] = await Promise.all([
+        loadShared("devfeel:notifications:" + user.handle, []),
+        loadShared("devfeel:affinity:" + user.handle, {}),
+        loadShared("devfeel:conversations:" + user.handle, []),
+      ]);
       if (live) setNotifications(remoteNotifs.slice().reverse());
-      const remoteAffinity = await loadShared("devfeel:affinity:" + user.handle, {});
       if (live) setAffinity(remoteAffinity);
+      if (live && Array.isArray(remoteIndex)) setConversationIndex(prev => JSON.stringify(prev) === JSON.stringify(remoteIndex) ? prev : remoteIndex);
     };
     pull();
     const interval = setInterval(pull, 4000);
@@ -1398,7 +1434,7 @@ export default function DevFeelApp() {
       const entry = { name: user.name, handle: user.handle, bio, isDev: isAdmin ? true : existingIsDev, acceptsMsgs, avatarUrl, links, isBot: false };
       const updated = idx === -1 ? [...users, entry] : users.map((u, i) => i === idx ? entry : u);
       await saveShared("devfeel:users", updated);
-      setRealUsers(updated);
+      setRealUsers(updated.filter(u => !isRetiredTestUser(u)));
     })();
   }, [user, acceptsMsgs, bio, avatarUrl, links, isAdmin]);
 
@@ -1450,7 +1486,7 @@ export default function DevFeelApp() {
     const users = await loadShared("devfeel:users", []);
     const updated = users.map(u => u.handle === handle ? { ...u, isDev: value } : u);
     await saveShared("devfeel:users", updated);
-    setRealUsers(updated);
+    setRealUsers(updated.filter(u => !isRetiredTestUser(u)));
     await pushNotification(handle, value ? "¡Tu cuenta fue verificada como developer!" : "Tu verificación de developer fue retirada.", "verified", {});
   };
   const resolveVerification = async (handle, approve) => {
@@ -1534,6 +1570,7 @@ export default function DevFeelApp() {
       const next = [...current, message];
       setMessagesMap(prev => ({ ...prev, [key]: [...(prev[key] || current), message] }));
       await saveShared("devfeel:messages:" + key, next);
+      await touchConversation(otherHandle, message.ts);
       await pushNotification(otherHandle, "Nuevo mensaje de " + user.name, "message", { handle: user.handle });
     });
     messageQueuesRef.current[key] = pending.catch(() => {});
@@ -1594,7 +1631,7 @@ export default function DevFeelApp() {
     const dev = allDevs.find(d => d.handle === handle);
     if (dev) setViewedProfile(dev);
   };
-  const openChatWith = (dev) => { setActiveChatHandle(dev.handle); setTab("chat"); setViewedProfile(null); };
+  const openChatWith = (dev) => { setActiveChatHandle(dev.handle); setTab("chat"); setViewedProfile(null); touchConversation(dev.handle); };
   const markChatRead = async (handle) => {
     if (!user) return;
     const list = await loadShared("devfeel:notifications:" + user.handle, []);
@@ -1616,9 +1653,66 @@ export default function DevFeelApp() {
     setShowNotifs(false);
   };
 
-  const activeConvKey = user ? convKey(user.handle, activeChatHandle) : "";
-  const contactsList = useMemo(() => allDevs, [allDevs]);
-  const existingHandles = useMemo(() => [...realUsers.map(u => u.handle), ...STATIC_DEVS.map(d => d.handle)], [realUsers]);
+  useEffect(() => {
+    if (!user) { setConversationIndex([]); return; }
+    let cancelled = false;
+    (async () => {
+      const stored = await loadShared("devfeel:conversations:" + user.handle, []);
+      const byHandle = new Map((Array.isArray(stored) ? stored : []).filter(row => row?.handle && row.handle !== user.handle).map(row => [row.handle, row]));
+      const discoveries = await Promise.all(allDevs.filter(dev => dev.handle !== user.handle && !isRetiredTestUser(dev)).map(async dev => {
+        const status = chatStatuses[convKey(user.handle, dev.handle)];
+        const history = await loadShared("devfeel:messages:" + convKey(user.handle, dev.handle), []);
+        const hasStatus = status?.status === "pending" || status?.status === "accepted";
+        if ((!Array.isArray(history) || history.length === 0) && !hasStatus) return null;
+        const last = Array.isArray(history) ? history.reduce((latest, msg) => Math.max(latest, Number(msg.ts) || 0), 0) : 0;
+        return { handle: dev.handle, updatedAt: Math.max(last, Number(status?.updatedAt || status?.ts || 0)) };
+      }));
+      for (const record of discoveries) if (record) {
+        const old = byHandle.get(record.handle);
+        if (!old || Number(record.updatedAt) > Number(old.updatedAt || 0)) byHandle.set(record.handle, record);
+      }
+      const next = [...byHandle.values()].filter(row => allDevs.some(dev => dev.handle === row.handle));
+      if (!cancelled) {
+        setConversationIndex(next);
+        await saveShared("devfeel:conversations:" + user.handle, next);
+        if (!next.some(row => row.handle === activeChatHandle)) {
+          const newest = [...next].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))[0];
+          if (newest) setActiveChatHandle(newest.handle);
+          else if (activeChatHandle) setActiveChatHandle("");
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user, allDevs, chatStatuses, activeChatHandle]);
+
+  const touchConversation = async (otherHandle, updatedAt = Date.now()) => {
+    const owners = [...new Set([user?.handle, otherHandle].filter(Boolean))];
+    for (const owner of owners) {
+      const key = "devfeel:conversations:" + owner;
+      const current = await loadShared(key, []);
+      const rows = Array.isArray(current) ? current : [];
+      const previous = rows.find(row => row.handle === (owner === user.handle ? otherHandle : user.handle));
+      const record = { handle: owner === user.handle ? otherHandle : user.handle, updatedAt: Math.max(Number(previous?.updatedAt || 0), updatedAt) };
+      const next = [...rows.filter(row => row.handle !== record.handle), record];
+      await saveShared(key, next);
+      if (owner === user.handle) setConversationIndex(next);
+    }
+  };
+
+  const activeConvKey = user && activeChatHandle ? convKey(user.handle, activeChatHandle) : "";
+  const contactsList = useMemo(() => {
+    const records = new Map(conversationIndex.map(row => [row.handle, row.updatedAt || 0]));
+    for (const dev of allDevs) {
+      const status = chatStatuses[convKey(user?.handle, dev.handle)];
+      if (status?.status === "pending" || status?.status === "accepted" || unreadChatHandles.has(dev.handle)) {
+        if (!records.has(dev.handle)) records.set(dev.handle, status?.updatedAt || status?.ts || 0);
+      }
+    }
+    return allDevs.filter(dev => records.has(dev.handle) && dev.handle !== user?.handle && !isRetiredTestUser(dev))
+      .map(dev => ({ ...dev, lastActivityAt: records.get(dev.handle) }))
+      .sort((a, b) => Number(b.lastActivityAt || 0) - Number(a.lastActivityAt || 0) || (unreadChatHandles.has(b.handle) ? 1 : 0) - (unreadChatHandles.has(a.handle) ? 1 : 0));
+  }, [allDevs, conversationIndex, chatStatuses, unreadChatHandles, user]);
+  const existingHandles = useMemo(() => [...realUsers.filter(u => !isRetiredTestUser(u)).map(u => u.handle), ...STATIC_DEVS.map(d => d.handle)], [realUsers]);
 
   return (
     <div className={"app-root" + (theme === "light" ? " light" : "")}>
@@ -1849,6 +1943,7 @@ export default function DevFeelApp() {
           .composer{ padding:14px; }
           .demo-iframe{ height:130px; }
         }
+        .chat-empty-state{display:flex;min-height:min(620px,calc(100dvh - 160px));flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:30px;text-align:center;color:var(--ink-muted)}.chat-empty-state>svg{width:62px;height:62px;padding:16px;border:1px solid var(--border);border-radius:50%;color:var(--accent)}.chat-empty-state h3{margin:5px 0 0;color:var(--ink);font-size:18px}.chat-empty-state p{max-width:390px;margin:0;color:var(--ink-faint);font-size:14px;line-height:1.55}
         .app-root{width:100%;max-width:none;min-height:100vh;margin:0;border-radius:0;overflow:visible;background:var(--canvas);color:var(--ink)}
         .desktop-shell{display:grid;grid-template-columns:220px minmax(0,700px) 310px;gap:28px;justify-content:center;max-width:1420px;min-height:100vh;margin:0 auto;padding:0 24px}
         .side-nav{position:sticky;top:0;height:100dvh;display:flex;flex-direction:column;padding:18px 8px 14px;min-width:0}
@@ -1883,13 +1978,28 @@ export default function DevFeelApp() {
         .messages{flex:1 1 auto;min-height:0;overscroll-behavior:contain;overflow-y:auto;scroll-behavior:smooth;overflow-anchor:auto}.bubble{max-width:min(78%,520px);overflow-wrap:anywhere}.composer-row{flex:0 0 auto;background:var(--canvas)}
         .pinned-banner,.attachments-panel,.request-banner,.reply-bar,.blocked-banner,.request-compose{flex:0 0 auto}
         @media(max-width:1380px){.mobile-search{display:flex}.desktop-shell{grid-template-columns:76px minmax(0,840px);gap:18px;max-width:1000px;padding:0 14px}.side-nav{padding-inline:2px}.side-brand{padding:12px 10px 20px}.side-brand .header-mark-text,.side-link span:not(.side-badge),.side-compose span,.side-account>span,.side-account>svg{display:none}.side-link{justify-content:center;padding:14px 10px}.side-link.active:before{left:-2px}.side-compose{width:48px;height:48px;margin:18px auto auto;padding:0}.side-account{justify-content:center;padding:7px}.right-rail{display:none}}
-        @media(max-width:760px){.desktop-shell{display:block;padding:0;max-width:none}.side-nav,.right-rail{display:none}.main-column{width:100%;min-height:100dvh;border:0}.app-header{position:sticky}.top-bar{gap:9px;padding:9px 12px}.page-title{font-size:17px}.mobile-search{display:block}.main-column .tab-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;justify-content:space-around;gap:0;padding:7px 4px calc(7px + env(safe-area-inset-bottom));border-top:1px solid var(--border);border-bottom:0;background:rgba(18,19,17,.97);backdrop-filter:blur(18px)}.tab-btn{flex-direction:column;gap:3px;padding:5px 8px;border:0;font-size:0}.tab-label{display:none}.screen{padding:10px 0 88px}.new-post-fab{padding:13px 14px}.chat-shell{grid-template-columns:1fr;height:calc(100dvh - 152px);min-height:440px;max-height:760px;border-right:0;border-left:0;border-radius:0}.contacts-col{height:100%;border-right:0}.chat-col{display:none}.chat-shell.show-chat .contacts-col{display:none}.chat-shell.show-chat .chat-col{display:flex}.mobile-back{display:flex}.composer-row{gap:6px;padding:9px}.composer-row .tool-btn{width:32px;height:32px}.composer-row input{padding:9px 12px;font-size:13px}.login-wrap{padding:20px 12px}.login-card{padding:24px 20px}}      `}</style>
+        @media(max-width:760px){.desktop-shell{display:block;padding:0;max-width:none}.side-nav,.right-rail{display:none}.main-column{width:100%;min-height:100dvh;border:0}.app-header{position:sticky}.top-bar{gap:9px;padding:9px 12px}.page-title{font-size:17px}.mobile-search{display:block}.main-column .tab-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;justify-content:space-around;gap:0;padding:7px 4px calc(7px + env(safe-area-inset-bottom));border-top:1px solid var(--border);border-bottom:0;background:rgba(18,19,17,.97);backdrop-filter:blur(18px)}.tab-btn{flex-direction:column;gap:3px;padding:5px 8px;border:0;font-size:0}.tab-label{display:none}.screen{padding:10px 0 88px}.new-post-fab{padding:13px 14px}.chat-shell{grid-template-columns:1fr;height:calc(100dvh - 152px);min-height:440px;max-height:760px;border-right:0;border-left:0;border-radius:0}.contacts-col{height:100%;border-right:0}.chat-col{display:none}.chat-shell.show-chat .contacts-col{display:none}.chat-shell.show-chat .chat-col{display:flex}.mobile-back{display:flex}.composer-row{gap:6px;padding:9px}.composer-row .tool-btn{width:32px;height:32px}.composer-row input{padding:9px 12px;font-size:13px}.login-wrap{padding:20px 12px}.login-card{padding:24px 20px}}
+        .app-root{width:100%;max-width:none;min-height:100vh;margin:0;border-radius:0;overflow:visible;background:var(--canvas);color:var(--ink)}
+        .desktop-shell{display:grid;grid-template-columns:220px minmax(0,700px) 310px;gap:28px;justify-content:center;max-width:1420px;min-height:100vh;margin:0 auto;padding:0 24px}
+        .side-nav{position:sticky;top:0;height:100dvh;display:flex;flex-direction:column;padding:18px 8px 14px;min-width:0}.side-brand-button{display:flex;width:100%;padding:10px 16px 22px;border:0;border-radius:14px;background:transparent;text-align:left;cursor:pointer}.side-brand-button:hover .header-mark{color:var(--accent)}.side-brand .header-mark{font-size:20px}.side-brand .header-mark-icon{width:34px;height:34px;border-radius:11px}
+        .side-nav-links{display:flex;flex-direction:column;gap:5px}.side-link{position:relative;display:flex;align-items:center;gap:16px;width:100%;padding:13px 16px;border:0;border-radius:12px;background:transparent;color:var(--ink-muted);font:500 15px Inter,sans-serif;text-align:left;cursor:pointer}.side-link:hover,.side-link.active{background:var(--surface-alt);color:var(--ink)}.side-link.active{font-weight:700}.side-link.active:before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:4px;background:var(--accent)}
+        .main-column{min-width:0;min-height:100vh;border-left:1px solid var(--border);border-right:1px solid var(--border);background:var(--canvas)}.app-header{position:sticky;top:0;z-index:80;background:color-mix(in srgb,var(--canvas) 96%,transparent);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}.top-bar{min-height:58px;padding:10px 20px}.page-title{font-size:18px;letter-spacing:-.02em;color:var(--ink)}.main-column .tab-bar{display:none}.screen{padding:16px 0 48px}
+        .rail-search .search-box{background:var(--surface-alt);border-color:var(--border)}.rail-card{background:var(--surface)}.card{margin:0;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent}.card:hover{background:color-mix(in srgb,var(--ink) 2%,transparent)}.new-post-fab{justify-content:flex-start;gap:12px;margin:0;padding:15px 18px;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;color:var(--ink-muted)}.compose-placeholder{flex:1;text-align:left;font-size:16px}.compose-cta{display:flex;align-items:center;gap:6px;padding:9px 16px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700}
+        .composer-backdrop{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.58);backdrop-filter:blur(5px)}.composer{width:min(700px,100%);max-height:min(88dvh,900px);overflow-y:auto;margin:0;padding:0 22px 22px;border:1px solid var(--border);border-radius:22px;background:var(--surface);color:var(--ink);box-shadow:0 24px 80px rgba(0,0,0,.32)}.composer-head{position:sticky;top:0;z-index:4;display:flex;align-items:center;justify-content:space-between;min-height:62px;margin:0 -22px 16px;padding:12px 22px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--surface) 96%,transparent);backdrop-filter:blur(12px)}.composer-head h2{margin:0;color:var(--ink);font-size:18px}.composer .title-input,.composer .url-input{width:100%;min-width:0;min-height:44px;padding:10px 13px;border:1px solid var(--border);border-radius:12px;outline:none;background:var(--surface-alt);color:var(--ink);font:inherit}.composer .title-input{margin-bottom:12px}.composer textarea{width:100%;min-height:115px;padding:13px;border:1px solid var(--border);border-radius:14px;background:var(--surface-alt);color:var(--ink);font:inherit;line-height:1.55}.composer .row,.composer .type-row,.composer .upload-row{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:14px 0}.composer input[type=range],.composer input[type=checkbox]{accent-color:var(--accent)}
+        .chat-shell{display:grid;grid-template-columns:240px minmax(0,1fr);height:min(760px,calc(100dvh - 150px));min-height:500px;margin:0;overflow:hidden;border:1px solid var(--border);border-radius:16px;background:var(--canvas)}.contacts-col{min-height:0;overflow-y:auto;border-right:1px solid var(--border);background:var(--surface)}.contacts-col h4{position:sticky;top:0;z-index:3;margin:0;background:var(--surface);color:var(--ink);padding:18px 16px 12px}.contact-item{gap:11px;padding:11px 14px;border-bottom:1px solid var(--border)}.contact-item.active,.contact-item:hover{background:var(--surface-alt)}.chat-col{height:100%;min-height:0;overflow:hidden;background:var(--canvas)}.chat-head{position:relative;z-index:4;flex:0 0 auto;min-height:68px;background:var(--canvas);box-shadow:0 1px 0 var(--border)}.messages{flex:1 1 auto;min-height:0;overscroll-behavior:contain;overflow-y:auto;scroll-behavior:smooth;overflow-anchor:auto}.composer-row{flex:0 0 auto;background:var(--canvas)}.pinned-banner,.attachments-panel,.request-banner,.reply-bar,.blocked-banner,.request-compose{flex:0 0 auto}.chat-empty-state{display:flex;min-height:min(620px,calc(100dvh - 160px));flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:30px;text-align:center;color:var(--ink-muted)}.chat-empty-state>svg{width:62px;height:62px;padding:16px;border:1px solid var(--border);border-radius:50%;color:var(--accent)}.chat-empty-state h3{margin:5px 0 0;color:var(--ink);font-size:18px}.chat-empty-state p{max-width:390px;margin:0;color:var(--ink-faint);font-size:14px;line-height:1.55}
+        .audio-bubble{max-width:min(86vw,360px);padding:7px 9px;background:var(--surface)!important;color:var(--ink)!important;border:1px solid var(--border)!important;font-weight:400!important}.audio-player{display:block;width:min(310px,78vw);max-width:100%;height:42px;color-scheme:light}.chat-image-button,.post-image-button{display:block;max-width:100%;padding:0;border:0;border-radius:10px;background:transparent;cursor:zoom-in;overflow:hidden}.post-image-button{width:100%;text-align:left}.chat-img{max-width:min(65vw,360px);max-height:420px;object-fit:cover}.attach-thumb-button{display:inline-flex;padding:0;border:0;border-radius:9px;background:transparent;cursor:zoom-in}.attach-thumb{width:58px;height:58px;border-radius:9px;object-fit:cover;display:block}
+        .pinned-banner{width:100%;text-align:left;cursor:pointer}.pinned-banner span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pinned-banner:hover{color:var(--ink);background:var(--surface)}.pinned-jump-icon{transform:rotate(180deg)}.message-highlight .bubble{outline:2px solid var(--accent);outline-offset:3px;animation:message-pulse 1.8s ease-out}@keyframes message-pulse{0%,35%{box-shadow:0 0 0 5px color-mix(in srgb,var(--accent) 30%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
+        .image-viewer{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.94);backdrop-filter:blur(8px)}.image-viewer-stage{display:flex;align-items:center;justify-content:center;width:100%;height:100%;overflow:auto;padding:54px 16px 82px}.image-viewer-stage img{display:block;flex:none;object-fit:contain;user-select:none;-webkit-user-drag:none}.image-viewer-close{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px;z-index:2;width:44px;height:44px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.2);border-radius:50%;background:rgba(20,20,20,.72);color:#fff;cursor:pointer}.image-viewer-controls{position:absolute;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:2;display:flex;align-items:center;gap:6px;padding:6px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(24,24,24,.84);color:#fff}.image-viewer-controls button{width:38px;height:38px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.image-viewer-controls .zoom-reset{width:auto;min-width:52px;font-size:12px;font-weight:650}.image-viewer-status{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:white}
+        .side-account .avatar{color:var(--ink);font-weight:750}.side-brand-button:focus-visible,.side-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+        @media(max-width:1380px){.desktop-shell{grid-template-columns:76px minmax(0,840px);gap:18px;max-width:1000px;padding:0 14px}.side-brand-button{justify-content:center;padding:12px 4px 20px}.side-brand-button .header-mark-text,.side-link span:not(.side-badge),.side-compose span,.side-account>span,.side-account>svg{display:none}.side-link{justify-content:center;padding:14px 10px}.side-compose{width:48px;height:48px;margin:18px auto auto;padding:0}.side-account{justify-content:center;padding:7px}.right-rail{display:none}}
+        @media(max-width:760px){.app-header{position:sticky;top:env(safe-area-inset-top,0px);z-index:80;isolation:isolate}.desktop-shell{display:block;padding:0;max-width:none}.side-nav,.right-rail{display:none}.main-column{width:100%;min-height:100dvh;border:0}.top-bar{min-height:58px;flex-wrap:nowrap;gap:8px;padding:9px 12px}.page-title{flex:0 0 auto;white-space:nowrap;font-size:17px}.mobile-search{display:block;min-width:0}.top-bar .right{flex:0 0 auto;gap:5px}.main-column .tab-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;justify-content:space-around;gap:0;padding:7px 4px calc(7px + env(safe-area-inset-bottom));border-top:1px solid var(--border);border-bottom:0;background:color-mix(in srgb,var(--canvas) 97%,transparent);backdrop-filter:blur(18px)}.tab-btn{flex-direction:column;gap:3px;padding:5px 8px;border:0;font-size:0}.tab-label{display:none}.screen{padding:10px 0 88px}.chat-shell{grid-template-columns:1fr;height:calc(100dvh - 152px);min-height:440px;max-height:760px;border:0;border-radius:0}.chat-col{display:none}.chat-shell.show-chat .contacts-col{display:none}.chat-shell.show-chat .chat-col{display:flex}.mobile-back{display:flex}.composer-row{gap:6px;padding:9px}.composer-row .tool-btn{width:32px;height:32px}.composer-row input{padding:9px 12px;font-size:13px}.composer-backdrop{align-items:flex-end;padding:0}.composer{width:100%;max-height:94dvh;padding:0 16px calc(18px + env(safe-area-inset-bottom));border-radius:22px 22px 0 0}.composer-head{margin:0 -16px 14px;padding:10px 16px;min-height:58px}.composer-head h2{font-size:17px}.composer .row>label{width:100%}.image-viewer-stage{padding:58px 10px 86px}.chat-img{max-width:min(72vw,320px);max-height:52vh}}
+      `}</style>
 
       {!user ? <LoginScreen onLogin={setUser} existingHandles={existingHandles} onClaimRequest={submitOwnershipClaim} onRegisterCredentials={registerCredentials} onLoginWithPassword={verifyCredentials} t={t} /> : (
         <>
           <div className="desktop-shell">
             <aside className="side-nav" aria-label="Navegación principal">
-              <div className="side-brand"><HeaderMark /></div>
+              <button className="side-brand-button" aria-label="DevFeel, ir al inicio" onClick={() => { setTab("feed"); setViewedProfile(null); setViewedPostId(null); setShowSearchResults(false); setSearchQuery(""); window.history.pushState({}, "", "/"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><HeaderMark /></button>
               <nav className="side-nav-links">
                 <button className={"side-link" + (tab === "feed" && !viewedProfile && !showSearchResults ? " active" : "")} onClick={() => { setTab("feed"); setViewedProfile(null); setViewedPostId(null); setShowSearchResults(false); }}><Home size={21}/><span>Inicio</span></button>
                 <button className={"side-link" + (showSearchResults ? " active" : "")} onClick={() => { setSearchQuery(""); setShowSearchResults(true); setViewedProfile(null); }}><Search size={21}/><span>Explorar</span></button>
@@ -1901,7 +2011,7 @@ export default function DevFeelApp() {
                 {isAdmin && <button className={"side-link" + (tab === "moderacion" ? " active" : "")} onClick={() => { setTab("moderacion"); setViewedProfile(null); setShowSearchResults(false); }}><ShieldCheck size={21}/><span>Moderación</span></button>}
               </nav>
               <button className="side-compose" onClick={() => { setTab("feed"); setViewedProfile(null); setShowSearchResults(false); setComposeSignal(n => n + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }}><Plus size={19}/><span>Publicar</span></button>
-              <button className="side-account" onClick={() => { setTab("perfil"); setViewedProfile(null); }}><Avatar name={user.name} url={avatarUrl}/><span><strong>{user.name}</strong><small>{user.handle}</small></span><MoreVertical size={17}/></button>
+              <button className="side-account" title={user.name + " · " + user.handle} aria-label={"Abrir perfil de " + user.name} onClick={() => { setTab("perfil"); setViewedProfile(null); }}><Avatar name={user.name} url={avatarUrl}/><span><strong>{user.name}</strong><small>{user.handle}</small></span><MoreVertical size={17}/></button>
             </aside>
             <main className="main-column">
               <div className="app-header">
