@@ -1035,7 +1035,7 @@ function SettingsScreen({ isDeveloper, hasPendingVerification, onRequestVerifica
       <div className="settings-card">
         <h3 style={{ fontSize: 16, marginBottom: 10 }}>Información general</h3>
         <div style={{ fontSize: 13, color: "var(--ink-muted)", lineHeight: 1.9 }}>
-          <div><strong style={{ color: "var(--ink)" }}>DevFeel</strong> · versión 1.8.0</div>
+          <div><strong style={{ color: "var(--ink)" }}>DevFeel</strong> · versión 1.8.2</div>
           <div>Elaborado con Claude (Anthropic) & ChatGPT (Codex)</div>
           <div>Creado por Nicolás Albán</div>
           <div>2026</div>
@@ -1366,7 +1366,7 @@ export default function DevFeelApp() {
   useEffect(() => {
     document.body.style.margin = "0";
     document.body.style.minHeight = "100vh";
-    document.body.style.background = theme === "light" ? "#F7F7F5" : "#0E0F0C";
+    document.body.style.background = theme === "light" ? "#FEF8EA" : "#040404";
   }, [theme]);
 
   useEffect(() => {
