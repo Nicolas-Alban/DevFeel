@@ -5,6 +5,36 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
+export async function signInWithProvider(provider) {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: { redirectTo: window.location.origin },
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function sendMagicLink(email) {
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.origin },
+  });
+  if (error) throw error;
+}
+
+export function getAuthSession() {
+  return supabase.auth.getSession();
+}
+
+export function onAuthStateChange(callback) {
+  return supabase.auth.onAuthStateChange(callback);
+}
+
+export async function signOutAuth() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
+
 export async function loadShared(key, fallback) {
   const { data, error } = await supabase
     .from("kv_store")

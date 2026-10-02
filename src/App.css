@@ -1,0 +1,126 @@
+.app-root.app-root {
+  --canvas: #080b12;
+  --surface: rgba(18, 24, 36, .78);
+  --surface-alt: rgba(28, 37, 53, .82);
+  --border: rgba(160, 181, 220, .14);
+  --accent: #78e4d1;
+  --accent-ink: #071b1a;
+  --ink: #f1f5fb;
+  --ink-muted: #a5b1c2;
+  --ink-faint: #758297;
+  --shadow: 0 18px 55px rgba(0, 0, 0, .32);
+  max-width: none;
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse at 16% 0%, rgba(64, 107, 179, .16), transparent 34rem),
+    radial-gradient(ellipse at 82% 14%, rgba(45, 194, 169, .095), transparent 32rem),
+    var(--canvas);
+  color: var(--ink);
+}
+
+.app-root.app-root.light {
+  --canvas: #f4f7fb;
+  --surface: rgba(255, 255, 255, .82);
+  --surface-alt: rgba(244, 248, 252, .94);
+  --border: rgba(37, 57, 83, .12);
+  --accent: #147f78;
+  --accent-ink: #fff;
+  --ink: #132033;
+  --ink-muted: #516176;
+  --ink-faint: #77869a;
+  --shadow: 0 18px 48px rgba(34, 57, 88, .1);
+  background:
+    radial-gradient(ellipse at 14% 0%, rgba(80, 133, 207, .12), transparent 34rem),
+    radial-gradient(ellipse at 84% 10%, rgba(47, 185, 163, .1), transparent 30rem),
+    var(--canvas);
+}
+
+.app-root .desktop-shell { max-width: 1420px; gap: 26px; }
+.app-root .side-nav { border-color: var(--border); background: transparent; }
+.app-root .main-column { border-color: var(--border); background: transparent; }
+.app-root .right-rail { background: transparent; }
+.app-root .app-header {
+  background: color-mix(in srgb, var(--canvas) 76%, transparent);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .08);
+  backdrop-filter: blur(22px) saturate(145%);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+}
+.app-root .card,
+.app-root .rail-card,
+.app-root .profile-card,
+.app-root .settings-card,
+.app-root .login-card,
+.app-root .chat-col,
+.app-root .contacts-col,
+.app-root .composer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+}
+.app-root .card,
+.app-root .rail-card,
+.app-root .settings-card,
+.app-root .profile-card { border-radius: 20px; }
+.app-root .side-link,
+.app-root .icon-btn,
+.app-root .icon-only-btn,
+.app-root .tool-btn,
+.app-root .devfeed-action-btn,
+.app-root .contact-pick-row,
+.app-root .search-suggestion-row { transition: transform .2s ease, background .2s ease, border-color .2s ease, color .2s ease; }
+.app-root .side-link:hover,
+.app-root .icon-btn:hover,
+.app-root .icon-only-btn:hover,
+.app-root .tool-btn:hover,
+.app-root .devfeed-action-btn:hover,
+.app-root .contact-pick-row:hover,
+.app-root .search-suggestion-row:hover { transform: translateY(-1px); }
+.app-root .pill-btn-solid,
+.app-root .publish-btn,
+.app-root .new-post-fab {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, white), var(--accent));
+  color: var(--accent-ink);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  transition: transform .2s ease, box-shadow .2s ease, filter .2s ease;
+}
+.app-root .pill-btn-solid:hover,
+.app-root .publish-btn:hover,
+.app-root .new-post-fab:hover { transform: translateY(-2px); filter: brightness(1.06); box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 28%, transparent); }
+.app-root .oauth-btn,
+.app-root .email-row,
+.app-root .search-box,
+.app-root .compose-cta,
+.app-root .compose-placeholder,
+.app-root .chat-terminal { border-color: var(--border); background: var(--surface); }
+.app-root .oauth-btn:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: var(--surface-alt); transform: translateY(-1px); }
+.app-root .brand-mark,
+.app-root .header-mark { letter-spacing: -.035em; }
+.app-root .header-mark-icon { box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 35%, transparent); }
+.app-root .login-wrap { min-height: 100dvh; background: transparent; }
+.app-root .login-card { border-radius: 26px; }
+.app-root .composer-backdrop { backdrop-filter: blur(8px); }
+.app-root .composer { border-radius: 24px; }
+.app-root input:focus,
+.app-root textarea:focus,
+.app-root .search-box:focus-within,
+.app-root .email-row:focus-within { outline: none; border-color: color-mix(in srgb, var(--accent) 66%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent); }
+.app-root .avatar { box-shadow: 0 0 0 1px var(--border); }
+.app-root .card:hover,
+.app-root .rail-card:hover { border-color: color-mix(in srgb, var(--accent) 25%, var(--border)); }
+
+@media (max-width: 760px) {
+  .app-root .desktop-shell { gap: 0; }
+  .app-root .app-header { top: 0; }
+  .app-root .card,
+  .app-root .rail-card,
+  .app-root .profile-card,
+  .app-root .settings-card { border-radius: 16px; }
+  .app-root .composer { border-radius: 22px 22px 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-root *, .app-root *::before, .app-root *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

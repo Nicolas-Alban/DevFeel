@@ -248,7 +248,7 @@ function SearchBar({ query, setQuery, allDevs, posts, onSelectUser, onSelectHash
 }
 
 /* ---------- LOGIN ---------- */
-function LoginScreen({ onLogin, existingHandles, onClaimRequest, onRegisterCredentials, onLoginWithPassword, t }) {
+function LoginScreen({ onLogin, existingHandles, onClaimRequest, onRegisterCredentials, onLoginWithPassword, onOAuth, oauthIdentity, t }) {
   const [step, setStep] = useState("options");
   const [pendingVia, setPendingVia] = useState("");
   const [nickname, setNickname] = useState("");
@@ -263,6 +263,22 @@ function LoginScreen({ onLogin, existingHandles, onClaimRequest, onRegisterCrede
   const [loginHandleInput, setLoginHandleInput] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [oauthBusy, setOauthBusy] = useState(false);
+
+  useEffect(() => {
+    if (!oauthIdentity) return;
+    const identityName = oauthIdentity.user_metadata?.full_name || oauthIdentity.user_metadata?.name || oauthIdentity.user_metadata?.user_name || oauthIdentity.email?.split("@")[0] || "DevFeel";
+    setPendingVia(oauthIdentity.app_metadata?.provider || "Google");
+    setNickname(identityName.slice(0, 20));
+    setHandleInput(sanitizeHandle(identityName));
+    setStep("name");
+  }, [oauthIdentity]);
+
+  const startOAuth = async (provider) => {
+    setError(""); setOauthBusy(true);
+    try { await onOAuth(provider); }
+    catch (e) { setError(e?.message || "No se pudo iniciar sesión. Revisá la configuración del proveedor en Supabase."); setOauthBusy(false); }
+  };
 
   const goToNameStep = (via) => { setPendingVia(via); setStep("name"); };
   const handleEmailContinue = () => { if (!isValidEmail(email)) { setError("Ingresa un correo electrónico válido."); return; } setError(""); setSent(true); };
@@ -289,11 +305,11 @@ function LoginScreen({ onLogin, existingHandles, onClaimRequest, onRegisterCrede
     const isReserved = ADMIN_HANDLES.includes(finalHandle);
     if (!isReserved && !validateHandleLength(finalHandle)) { setError("El @usuario debe tener entre 5 y 9 caracteres."); return; }
     if (isTaken && !handleOverride) { setError("Ese @usuario ya está en uso."); return; }
-    if (password.length < 6) { setError("La contraseña debe tener al menos 6 caracteres."); return; }
-    if (password !== password2) { setError("Las contraseñas no coinciden."); return; }
+    if (!oauthIdentity && password.length < 6) { setError("La contraseña debe tener al menos 6 caracteres."); return; }
+    if (!oauthIdentity && password !== password2) { setError("Las contraseñas no coinciden."); return; }
     setError("");
-    await onRegisterCredentials(finalHandle, password);
-    onLogin({ name: trimmedNick, handle: finalHandle, via: pendingVia });
+    if (!oauthIdentity) await onRegisterCredentials(finalHandle, password);
+    onLogin({ name: trimmedNick, handle: finalHandle, via: pendingVia, ...(oauthIdentity ? { authUserId: oauthIdentity.id, authEmail: oauthIdentity.email, authProvider: oauthIdentity.app_metadata?.provider } : {}) });
   };
   const useSuggested = () => finish(suggestedHandle);
   const sendClaim = () => { onClaimRequest(desiredHandle, trimmedNick, pendingVia); setClaimSent(true); };
@@ -358,8 +374,8 @@ function LoginScreen({ onLogin, existingHandles, onClaimRequest, onRegisterCrede
       <BrandLogo />
       <h2>{t("bienvenido")}</h2>
       <p className="sub">Donde los developers comparten lo que construyen.</p>
-      <button className="oauth-btn" onClick={() => goToNameStep("GitHub")}><Code2 size={18}/> Continuar con GitHub</button>
-      <button className="oauth-btn" onClick={() => goToNameStep("Google")}>
+      <button className="oauth-btn" disabled={oauthBusy} onClick={() => startOAuth("github")}><Code2 size={18}/> Continuar con GitHub</button>
+      <button className="oauth-btn" disabled={oauthBusy} onClick={() => startOAuth("google")}>
         <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
         Continuar con Google
       </button>
@@ -368,11 +384,10 @@ function LoginScreen({ onLogin, existingHandles, onClaimRequest, onRegisterCrede
         <>
           <div className="email-row"><Mail size={16} /><input type="email" placeholder="tú@correo.com" value={email} onChange={e => { setEmail(e.target.value); setError(""); }} /></div>
           {error && <p className="error-text">{error}</p>}
-          <button className="pill-btn-solid" onClick={handleEmailContinue}>Enviar enlace de acceso</button>
+          <button className="pill-btn-solid" onClick={async () => { if (!isValidEmail(email)) { setError("Ingresa un correo electrónico válido."); return; } try { await window.__supabaseStorage?.sendMagicLink(email); setError(""); setSent(true); } catch (e) { setError(e?.message || "No se pudo enviar el enlace. Revisá Auth en Supabase."); } }}>Enviar enlace de acceso</button>
         </>
       ) : (
-        <div className="sent-box"><CheckCircle2 size={18} /><span>Enlace enviado a {email}.</span>
-          <button className="pill-btn-outline" onClick={() => goToNameStep("correo")}>(Demo) Simular clic en el enlace</button></div>
+        <div className="sent-box"><CheckCircle2 size={18} /><span>Enlace de acceso real enviado a {email}. Abrilo para continuar.</span></div>
       )}
       <div className="divider"><span>o</span></div>
       <button className="pill-btn-outline" style={{ width: "100%", justifyContent: "center" }} onClick={() => setStep("login")}>{t("yaTengoCuenta")}</button>
@@ -1259,6 +1274,8 @@ export default function DevFeelApp() {
   const [user, setUser] = useState(() => {
     try { const saved = localStorage.getItem("devfeel_session"); return saved ? JSON.parse(saved) : null; } catch (e) { return null; }
   });
+  const [oauthIdentity, setOauthIdentity] = useState(null);
+  const authHandledRef = useRef("");
   const [viewedPostId, setViewedPostId] = useState(null);
   const pendingPostIdRef = useRef(null);
   const [tab, setTab] = useState("feed");
@@ -1310,6 +1327,30 @@ export default function DevFeelApp() {
     check();
     const interval = setInterval(check, 15000);
     return () => { live = false; clearInterval(interval); };
+  }, []);
+  useEffect(() => {
+    const authApi = window.__supabaseStorage;
+    if (!authApi?.getAuthSession || !authApi?.onAuthStateChange) return;
+    const adoptIdentity = async (authUser) => {
+      if (!authUser || authHandledRef.current === authUser.id) return;
+      authHandledRef.current = authUser.id;
+      const users = await loadShared("devfeel:users", []);
+      const profile = users.find(entry => entry.authUserId === authUser.id);
+      if (profile) {
+        setUser({ name: profile.name, handle: profile.handle, via: profile.authProvider || authUser.app_metadata?.provider, authUserId: authUser.id, authEmail: authUser.email, authProvider: authUser.app_metadata?.provider });
+        setOauthIdentity(null);
+      } else {
+        setOauthIdentity(authUser);
+      }
+    };
+    let live = true;
+    authApi.getAuthSession().then(({ data }) => { if (live) adoptIdentity(data?.session?.user); }).catch(() => {});
+    const { data: subscription } = authApi.onAuthStateChange((event, session) => {
+      if (!live) return;
+      if (session?.user) setTimeout(() => { if (live) adoptIdentity(session.user); }, 0);
+      else if (event === "SIGNED_OUT") { authHandledRef.current = ""; setOauthIdentity(null); }
+    });
+    return () => { live = false; subscription?.subscription?.unsubscribe(); };
   }, []);
   useEffect(() => {
     try {
@@ -1431,7 +1472,7 @@ export default function DevFeelApp() {
       const users = await loadShared("devfeel:users", []);
       const idx = users.findIndex(u => u.handle === user.handle);
       const existingIsDev = idx !== -1 ? users[idx].isDev : false;
-      const entry = { name: user.name, handle: user.handle, bio, isDev: isAdmin ? true : existingIsDev, acceptsMsgs, avatarUrl, links, isBot: false };
+      const entry = { ...(idx === -1 ? {} : users[idx]), name: user.name, handle: user.handle, bio, isDev: isAdmin ? true : existingIsDev, acceptsMsgs, avatarUrl, links, isBot: false, ...(user.authUserId ? { authUserId: user.authUserId, authEmail: user.authEmail, authProvider: user.authProvider } : {}) };
       const updated = idx === -1 ? [...users, entry] : users.map((u, i) => i === idx ? entry : u);
       await saveShared("devfeel:users", updated);
       setRealUsers(updated.filter(u => !isRetiredTestUser(u)));
@@ -1995,7 +2036,7 @@ export default function DevFeelApp() {
         @media(max-width:760px){.app-header{position:sticky;top:env(safe-area-inset-top,0px);z-index:80;isolation:isolate}.desktop-shell{display:block;padding:0;max-width:none}.side-nav,.right-rail{display:none}.main-column{width:100%;min-height:100dvh;border:0}.top-bar{min-height:58px;flex-wrap:nowrap;gap:8px;padding:9px 12px}.page-title{flex:0 0 auto;white-space:nowrap;font-size:17px}.mobile-search{display:block;min-width:0}.top-bar .right{flex:0 0 auto;gap:5px}.main-column .tab-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;justify-content:space-around;gap:0;padding:7px 4px calc(7px + env(safe-area-inset-bottom));border-top:1px solid var(--border);border-bottom:0;background:color-mix(in srgb,var(--canvas) 97%,transparent);backdrop-filter:blur(18px)}.tab-btn{flex-direction:column;gap:3px;padding:5px 8px;border:0;font-size:0}.tab-label{display:none}.screen{padding:10px 0 88px}.chat-shell{grid-template-columns:1fr;height:calc(100dvh - 152px);min-height:440px;max-height:760px;border:0;border-radius:0}.chat-col{display:none}.chat-shell.show-chat .contacts-col{display:none}.chat-shell.show-chat .chat-col{display:flex}.mobile-back{display:flex}.composer-row{gap:6px;padding:9px}.composer-row .tool-btn{width:32px;height:32px}.composer-row input{padding:9px 12px;font-size:13px}.composer-backdrop{align-items:flex-end;padding:0}.composer{width:100%;max-height:94dvh;padding:0 16px calc(18px + env(safe-area-inset-bottom));border-radius:22px 22px 0 0}.composer-head{margin:0 -16px 14px;padding:10px 16px;min-height:58px}.composer-head h2{font-size:17px}.composer .row>label{width:100%}.image-viewer-stage{padding:58px 10px 86px}.chat-img{max-width:min(72vw,320px);max-height:52vh}}
       `}</style>
 
-      {!user ? <LoginScreen onLogin={setUser} existingHandles={existingHandles} onClaimRequest={submitOwnershipClaim} onRegisterCredentials={registerCredentials} onLoginWithPassword={verifyCredentials} t={t} /> : (
+      {!user ? <LoginScreen onLogin={setUser} existingHandles={existingHandles} onClaimRequest={submitOwnershipClaim} onRegisterCredentials={registerCredentials} onLoginWithPassword={verifyCredentials} onOAuth={(provider) => window.__supabaseStorage.signInWithProvider(provider)} oauthIdentity={oauthIdentity} t={t} /> : (
         <>
           <div className="desktop-shell">
             <aside className="side-nav" aria-label="Navegación principal">
@@ -2026,7 +2067,7 @@ export default function DevFeelApp() {
               <span className="conn-pill" title={storageOnline === true ? "Conectado a Supabase" : storageOnline === false ? "Sin conexión con Supabase" : "Comprobando conexión…"}>{storageOnline === true ? <Wifi size={12}/> : <WifiOff size={12}/>}</span>
               <button className="icon-only-btn" onClick={() => setShowNotifs(s => !s)}><Bell size={16}/>{unreadCount > 0 && <span className="badge-dot">{unreadCount}</span>}</button>
               {showNotifs && <NotificationsDropdown notifications={notifications} onClose={() => setShowNotifs(false)} onClickNotif={handleNotifClick} />}
-              <button className="icon-only-btn" onClick={() => setUser(null)}><LogOut size={16}/></button>
+              <button className="icon-only-btn" onClick={async () => { try { await window.__supabaseStorage?.signOutAuth?.(); } catch {} setUser(null); }}><LogOut size={16}/></button>
             </div>
           </div>
           <div className="tab-bar">
